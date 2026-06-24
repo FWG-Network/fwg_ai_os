@@ -1,14 +1,15 @@
-from .goal import Goal, Task
+# ★★★ FIX: Import 'List' and return the correct, simple type ★★★
+from typing import List
 
 class TaskPlanner:
-    def create_plan(self, goal: Goal) -> List[Task]:
-        """Breaks a high-level goal into a sequence of actionable tasks."""
-        # In a real system, this could be a complex call to a planning-focused LLM.
-        # Here, we simulate a simple breakdown.
-        plan = [
-            Task(description=f"Initial research and context gathering for '{goal.description}'"),
-            Task(description=f"Execute core logic to address '{goal.description}'"),
-            Task(description=f"Review and verify the result for '{goal.description}'"),
-            Task(description=f"Final summarization of the outcome for '{goal.description}'")
+    def create_plan(self, goal_description: str) -> List[str]:
+        """Breaks a high-level goal into a sequence of actionable task descriptions."""
+        plan_descriptions = [
+            f"Initial research for '{goal_description}'",
+            f"Execute core logic for '{goal_description}'",
+            f"Review and verify result for '{goal_description}'",
+            f"Final summary for '{goal_description}'"
         ]
-        return plan
+        return plan_descriptions
+
+task_planner_service = TaskPlanner()
