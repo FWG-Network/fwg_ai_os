@@ -1,33 +1,58 @@
-from .reward import RewardEngine
-from .online_learning import OnlineLearning
+import json
 from .events import UserEvent
+from .reward import reward_service  # Using the service instance pattern
+from .online_learning import online_learning_service # Using the service instance pattern
 
-# In a real system, we'd have a User Profile Store (e.g., Redis)
-# For now, we use a simple in-memory dictionary to simulate it.
-USER_PROFILE_DB = {} 
+# ★★★ FIX: Removed the in-memory USER_PROFILE_DB dictionary ★★★
+# Instead, we import the centralized, shared Redis client.
+from backend.core.services import redis_client
 
 class Trainer:
-    def __init__(self):
-        self.reward_engine = RewardEngine()
-        self.learning_engine = OnlineLearning()
+    """
+    The Trainer class is responsible for the online learning loop.
+    It processes user events, calculates rewards, and updates user profiles
+    in a persistent, shared state manager (Redis).
+    """
 
     def train(self, event: UserEvent):
-        """The main training loop for a single user event."""
+        """
+        The main training loop for a single user event.
+        This process is now stateless and production-ready.
+        """
         print(f"Training on event: {event.event_type} for user {event.user_id}")
-
-        # 1. Load user profile (or create if new)
-        profile = USER_PROFILE_DB.get(event.user_id, {"user_id": event.user_id})
-
-        # 2. Calculate reward
-        reward = self.reward_engine.calculate(event.event_type, event.value)
         
-        # 3. Update interests via online learning
-        updated_profile = self.learning_engine.update_interest(
+        profile_key = f"profile:{event.user_id}"
+
+        # 1. ★★★ FIX: Load user profile from the shared Redis store ★★★
+        try:
+            profile_json = redis_client.get(profile_key)
+            # If a profile exists, load it; otherwise, create a new one.
+            if profile_json:
+                profile = json.loads(profile_json)
+            else:
+                profile = {"user_id": event.user_id, "interests": {}}
+        except Exception as e:
+            print(f"ERROR: Could not load profile for user {event.user_id} from Redis. Error: {e}")
+            # In a real system, you might want to stop or handle this more gracefully.
+            return
+
+        # 2. Calculate reward using the reward service
+        reward = reward_service.calculate(event.event_type, event.value)
+        
+        # 3. Update interests via the online learning service
+        updated_profile = online_learning_service.update_interest(
             profile, 
             event.tags, 
             reward
         )
 
-        # 4. Save the updated profile
-        USER_PROFILE_DB[event.user_id] = updated_profile
-        print(f"User {event.user_id} profile updated. New interests: {updated_profile.get('interests')}")
+        # 4. ★★★ FIX: Save the updated profile back to the shared Redis store ★★★
+        try:
+            redis_client.set(profile_key, json.dumps(updated_profile))
+            print(f"User {event.user_id} profile updated in Redis. New interests: {updated_profile.get('interests')}")
+        except Exception as e:
+            print(f"ERROR: Could not save profile for user {event.user_id} to Redis. Error: {e}")
+
+
+# Create a single, reusable instance of the Trainer service
+trainer_service = Trainer()
