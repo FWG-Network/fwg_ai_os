@@ -35,3 +35,4 @@ qdrant-client
 
 # --- Testing Framework ---
 pytest
+httpx
