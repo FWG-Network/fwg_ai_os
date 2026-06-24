@@ -1,7 +1,11 @@
 from .events import EventType
 
+# ★★★ FIX: REMOVED the service instance from this file ★★★
 class RewardEngine:
-    REWARDS = {
+    REWARDS = { ... } # The class definition remains the same
+    def calculate(self, event_type: str, value: float = 0.0) -> int:
+        # ... logic remains the same ...
+        pass
         EventType.VIEW: 1,
         EventType.CLICK: 2,
         EventType.WATCH: 4, # Base reward, can be multiplied by watch ratio
