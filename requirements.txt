@@ -1,33 +1,37 @@
+# --- Core Application Framework ---
 fastapi
 uvicorn[standard]
 pydantic
-sqlalchemy
-psycopg2-binary
-redis
 python-dotenv
 httpx
 
-# AI Models
-sentence-transformers
-transformers
+# --- State, Database & Task Queue ---
+sqlalchemy
+psycopg2-binary
+redis
+celery
+
+# --- AI & Machine Learning ---
+# Core libraries
 torch
-clip-openai
-whisper-openai
+numpy
+scikit-learn
+
+# Transformer models for various tasks
+transformers
+sentence-transformers
+openai-clip
+openai-whisper
 easyocr
 
-# For Learning Workers
-celery
-redis
-
-# For LLM Orchestration
-numpy
-scikit-learn # For cosine_similarity
-openai       # Placeholder for future integration
-anthropic    # Placeholder for future integration
-
-# For reading YAML configuration files
+# --- LLM Orchestration & Configuration ---
+# API clients (can be installed even if only used later)
+openai
+anthropic
 PyYAML
 
-# Testing
+# --- Vector Database Client ---
+qdrant-client
+
+# --- Testing Framework ---
 pytest
-httpx # Asynchronous HTTP client for testing FastAPI
