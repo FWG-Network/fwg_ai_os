@@ -1,0 +1,29 @@
+fastapi
+uvicorn[standard]
+pydantic
+sqlalchemy
+psycopg2-binary
+redis
+python-dotenv
+httpx
+
+# AI Models
+sentence-transformers
+transformers
+torch
+clip-openai
+whisper-openai
+easyocr
+
+# For Learning Workers
+celery
+redis
+
+# For LLM Orchestration
+numpy
+scikit-learn # For cosine_similarity
+openai       # Placeholder for future integration
+anthropic    # Placeholder for future integration
+
+# For reading YAML configuration files
+PyYAML
