@@ -27,3 +27,7 @@ anthropic    # Placeholder for future integration
 
 # For reading YAML configuration files
 PyYAML
+
+# Testing
+pytest
+httpx # Asynchronous HTTP client for testing FastAPI
