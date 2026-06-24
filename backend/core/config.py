@@ -13,5 +13,6 @@ class Settings:
     DATABASE_URL: str = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}/{POSTGRES_DB}"
     
     REDIS_HOST: str = os.getenv("REDIS_HOST")
+    QDRANT_HOST: str = os.getenv("QDRANT_HOST")
 
 settings = Settings()
