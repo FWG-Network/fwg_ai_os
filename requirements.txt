@@ -35,4 +35,4 @@ qdrant-client
 
 # --- Testing Framework ---
 pytest
-httpx
+pytest-asyncio  # ★★★ FIX: Added the missing plugin for async tests ★★★
