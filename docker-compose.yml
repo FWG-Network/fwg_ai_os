@@ -1,7 +1,6 @@
 version: '3.9'
 
 services:
-  # 1. The PostgreSQL Database Service
   db:
     image: postgres:14
     container_name: aios_db
@@ -14,14 +13,22 @@ services:
     ports:
       - "5432:5432"
 
-  # 2. The Redis Caching & Broker Service
   redis:
     image: redis:7
     container_name: aios_redis
     ports:
       - "6379:6379"
 
-  # 3. Our Main Backend API Service
+  # ★★★ NEW: Vector Database Service ★★★
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: aios_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
   api:
     build: .
     container_name: aios_api
@@ -31,28 +38,33 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - POSTGRES_HOST=db  # <-- Use service name as hostname
-      - REDIS_HOST=redis    # <-- Use service name as hostname
-    depends_on:
+      - POSTGRES_HOST=db
+      - REDIS_HOST=redis
+      - QDRANT_HOST=qdrant # <-- New env var
+    depends_on: 
       - db
       - redis
+      - qdrant
     env_file:
       - .env
 
-  # 4. Our Real-Time Learning Worker Service
   worker:
     build: .
     container_name: aios_worker
-    command: celery -A backend.worker.celery_app worker --loglevel=info
+    # ★★★ FIX: Default concurrency set to 1 for sequential loop and RAM saving ★★★
+    command: celery -A backend.worker.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-1}
     volumes:
       - .:/app
     environment:
       - POSTGRES_HOST=db
       - REDIS_HOST=redis
+      - QDRANT_HOST=qdrant # <-- New env var
     depends_on:
       - redis
+      - qdrant
     env_file:
       - .env
 
 volumes:
   postgres_data:
+  qdrant_data:
