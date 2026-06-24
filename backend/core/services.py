@@ -1,67 +1,80 @@
+# ===================================================================
+# CENTRAL SERVICE INITIALIZATION HUB
+# This file is the single source of truth for all service instances.
+# It prevents circular dependencies and ensures a clean startup order.
+# ===================================================================
 import redis
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 from .config import settings
 
-# --- Centralized, Shared Clients ---
-
-# ★★★ FIX: Added error handling for robust connection ★★★
+# --- Infrastructure Clients ---
+print("Initializing core infrastructure clients...")
 try:
-    redis_client = redis.Redis(
-        host=settings.REDIS_HOST, 
-        port=6379, 
-        db=0, 
-        decode_responses=True
-    )
-    # Ping the server to ensure a connection is established.
+    redis_client = redis.Redis(host=settings.REDIS_HOST, port=6379, db=0, decode_responses=True)
     redis_client.ping()
-    print("✅ Successfully connected to Redis.")
-except redis.exceptions.ConnectionError as e:
-    print(f"❌ CRITICAL ERROR: Could not connect to Redis at {settings.REDIS_HOST}. Please check the service. Error: {e}")
-    # In a real app, you might exit or have a fallback.
+    print("✅ Redis client initialized.")
+except Exception as e:
+    print(f"❌ CRITICAL: Failed to connect to Redis. {e}")
     redis_client = None
-
 
 try:
     qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=6333)
-    # The client initializes instantly, but we can check the connection by listing collections.
     qdrant_client.get_collections()
-    print("✅ Successfully connected to Qdrant.")
+    print("✅ Qdrant client initialized.")
 except Exception as e:
-    print(f"❌ CRITICAL ERROR: Could not connect to Qdrant at {settings.QDRANT_HOST}. Please check the service. Error: {e}")
+    print(f"❌ CRITICAL: Failed to connect to Qdrant. {e}")
     qdrant_client = None
 
+# --- Application Service Classes ---
+print("Importing service classes...")
+from backend.learning.reward import RewardEngine
+from backend.learning.online_learning import OnlineLearning
+from backend.learning.trainer import Trainer
+from backend.aios.task_planner import TaskPlanner
+from backend.aios.executor import Executor
+from backend.aios.reflection import ReflectionEngine
+from backend.aios.autonomous_loop import AutonomousLoop
+from backend.services.discovery_engine import DiscoveryEngine
+from backend.services.ranking_engine import RankingEngine
+from backend.services.personalization_engine import PersonalizationEngine
+from backend.services.multimodal_engine import MultimodalEngine
+from backend.llm.orchestrator import LLMOrchestrator
+
+# --- Singleton Service Instances ---
+print("Instantiating singleton service instances...")
+# ★★★ FIX: All services are now created here ★★★
+reward_service = RewardEngine()
+online_learning_service = OnlineLearning()
+trainer_service = Trainer()
+task_planner_service = TaskPlanner()
+executor_service = Executor()
+reflection_service = ReflectionEngine()
+autonomous_loop_service = AutonomousLoop()
+discovery_engine_service = DiscoveryEngine()
+ranking_engine_service = RankingEngine()
+personalization_engine_service = PersonalizationEngine()
+multimodal_engine_service = MultimodalEngine()
+llm_orchestrator_service = LLMOrchestrator()
+print("✅ All application services instantiated.")
+
+
 # --- Idempotent Setup Logic ---
-
 def setup_vector_database():
-    """
-    Ensures that the required Qdrant collection exists.
-    This function is safe to run multiple times.
-    """
-    if not qdrant_client:
-        print("Cannot setup vector database because Qdrant client is not available.")
-        return
-
+    if not qdrant_client: return
     collection_name = "aios_memory"
     try:
         collections = qdrant_client.get_collections().collections
-        collection_names = [collection.name for collection in collections]
-
-        # ★★★ FIX: Check if the collection exists BEFORE trying to create it ★★★
-        if collection_name not in collection_names:
-            print(f"Collection '{collection_name}' not found. Creating it now...")
+        if collection_name not in [c.name for c in collections]:
             qdrant_client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(size=384, distance=Distance.COSINE),
             )
-            print(f"✅ Collection '{collection_name}' created successfully.")
+            print(f"✅ Qdrant collection '{collection_name}' created.")
         else:
-            print(f"✅ Collection '{collection_name}' already exists. No action needed.")
-
+            print(f"✅ Qdrant collection '{collection_name}' already exists.")
     except Exception as e:
-        print(f"❌ ERROR: An error occurred during Qdrant collection setup. Error: {e}")
+        print(f"❌ ERROR during Qdrant setup: {e}")
 
-# Run the setup logic once when the application starts.
-# This logic will be imported and run by both API and Worker services,
-# but it is safe because it's idempotent.
+# Run setup on import
 setup_vector_database()
