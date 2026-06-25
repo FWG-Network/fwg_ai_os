@@ -1,0 +1,2 @@
+# This file is for dependencies of utility scripts, not the main application.
+# Currently empty as pipeline_intelligence.py uses standard libraries.
