@@ -34,5 +34,6 @@ PyYAML
 qdrant-client
 
 # --- Testing Framework ---
-pytest
-pytest-asyncio  # ★★★ FIX: Added the missing plugin for async tests ★★★
+[pytest]
+pythonpath = .
+# ★★★ FIX: Removed the asyncio_mode as it's no longer needed for API tests and was causing warnings ★★★
