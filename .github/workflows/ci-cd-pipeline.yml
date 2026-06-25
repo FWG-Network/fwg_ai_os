@@ -1,0 +1,141 @@
+# This is the intelligent CI/CD pipeline for the AI-OS
+name: AI-OS Intelligent CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Job 1: Linting and Unit Testing (Quality Gate)
+  lint_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m pytest
+
+  # Job 2: Analyze Change Risk (The "Self-Learning" part)
+  analyze_risk:
+    needs: lint_and_test # Run only if tests pass
+    runs-on: ubuntu-latest
+    outputs:
+      risk_level: ${{ steps.risk_analyzer.outputs.risk }} # Output the risk level for other jobs
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for git diff
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install script dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Analyze code changes for risk
+        id: risk_analyzer
+        run: |
+          risk=$(python scripts/pipeline_intelligence.py ${{ github.event.before }} ${{ github.event.after }})
+          echo "Determined risk level: $risk"
+          echo "risk=$risk" >> $GITHUB_OUTPUT
+
+  # Job 3: Build and Push Docker Images
+  build_and_push:
+    needs: analyze_risk # Depends on the risk analysis
+    if: needs.analyze_risk.outputs.risk_level != 'critical' # HALT pipeline on critical risk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: api # Specify the target stage in Dockerfile
+          push: true
+          tags: your_dockerhub_username/aios-api:${{ github.sha }}
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: worker # Specify the target stage in Dockerfile
+          push: true
+          tags: your_dockerhub_username/aios-worker:${{ github.sha }}
+
+  # Job 4: Deploy to Staging Environment
+  deploy_to_staging:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_STAGING }}
+
+      - name: Update Kubernetes manifests with new image tag
+        run: |
+          sed -i 's|image: .*|image: your_dockerhub_username/aios-api:${{ github.sha }}|g' kubernetes/20-api.yaml
+          sed -i 's|image: .*|image: your_dockerhub_username/aios-worker:${{ github.sha }}|g' kubernetes/21-worker.yaml
+
+      - name: Deploy to staging cluster
+        run: kubectl apply -k kubernetes/ # Assuming you use kustomize or apply all files
+
+      - name: Verify Staging Deployment
+        run: |
+          echo "Waiting for rollout to complete..."
+          kubectl rollout status deployment/api-deployment -n aios --timeout=2m
+          echo "Staging deployment successful!"
+
+  # Job 5: Deploy to Production (with Manual Approval)
+  deploy_to_production:
+    needs: deploy_to_staging
+    runs-on: ubuntu-latest
+    environment: 
+      name: production
+      url: http://<your-production-app-url> # Add your production URL here
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG_PRODUCTION }}
+      
+      - name: Update Kubernetes manifests
+        run: |
+          sed -i 's|image: .*|image: your_dockerhub_username/aios-api:${{ github.sha }}|g' kubernetes/20-api.yaml
+          sed -i 's|image: .*|image: your_dockerhub_username/aios-worker:${{ github.sha }}|g' kubernetes/21-worker.yaml
+
+      - name: Deploy to production cluster
+        run: kubectl apply -k kubernetes/
