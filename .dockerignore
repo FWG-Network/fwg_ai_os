@@ -1,0 +1,10 @@
+# Exclude files not needed in the final Docker image to speed up builds
+# and improve security.
+.git
+.gitignore
+.venv
+__pycache__
+tests/
+scripts/
+README.md
+.dockerignore
