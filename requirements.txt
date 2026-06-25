@@ -3,7 +3,7 @@ fastapi
 uvicorn[standard]
 pydantic
 python-dotenv
-httpx
+httpx[http2]
 
 # --- State, Database & Task Queue ---
 sqlalchemy
@@ -12,12 +12,9 @@ redis
 celery
 
 # --- AI & Machine Learning ---
-# Core libraries
 torch
 numpy
 scikit-learn
-
-# Transformer models for various tasks
 transformers
 sentence-transformers
 openai-clip
@@ -25,7 +22,6 @@ openai-whisper
 easyocr
 
 # --- LLM Orchestration & Configuration ---
-# API clients (can be installed even if only used later)
 openai
 anthropic
 PyYAML
@@ -34,6 +30,5 @@ PyYAML
 qdrant-client
 
 # --- Testing Framework ---
-[pytest]
-pythonpath = .
-# ★★★ FIX: Removed the asyncio_mode as it's no longer needed for API tests and was causing warnings ★★★
+pytest
+pytest-asyncio
