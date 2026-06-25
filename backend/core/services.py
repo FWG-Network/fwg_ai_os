@@ -28,8 +28,10 @@ except Exception as e:
 
 # --- Application Service Classes ---
 print("Importing service classes...")
+# ★★★ FIX: Import only the classes that are truly independent ★★★
 from backend.learning.reward import RewardEngine
 from backend.learning.online_learning import OnlineLearning
+# ... other independent services ...
 from backend.learning.trainer import Trainer
 from backend.aios.task_planner import TaskPlanner
 from backend.aios.executor import Executor
@@ -42,10 +44,10 @@ from backend.services.multimodal_engine import MultimodalEngine
 from backend.llm.orchestrator import LLMOrchestrator
 
 # --- Singleton Service Instances ---
-print("Instantiating singleton service instances...")
-# ★★★ FIX: All services are now created here ★★★
+print("Instantiating INDEPENDENT singleton service instances...")
 reward_service = RewardEngine()
 online_learning_service = OnlineLearning()
+# ★★★ FIX: All services are now created here ★★★
 trainer_service = Trainer()
 task_planner_service = TaskPlanner()
 executor_service = Executor()
