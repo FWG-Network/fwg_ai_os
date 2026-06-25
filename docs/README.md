@@ -85,6 +85,3 @@ pip install -r requirements.txt
 # STEP 5: Launch the entire AI Operating System.
 echo "--> STEP 5/5: Launching the AI-OS. This will take a while..."
 docker compose up --build
-
-
----
