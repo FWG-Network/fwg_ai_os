@@ -40,6 +40,5 @@ fake-useragent
 
 # Hunnging Face Spaces 🤗
 fastapi
-gradio
-uvicorn
+uvicorn[standard]
 requests
