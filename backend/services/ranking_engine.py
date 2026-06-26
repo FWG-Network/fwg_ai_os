@@ -1,10 +1,9 @@
-from math import log
+from math import log as math_log  # ← fix conflict
+from datetime import datetime, timezone
+from .personalization_engine import personalization_engine_service
+from backend.core.logger import log  # ← logger
 
 class RankingEngine:
-    """
-    Ranks a list of content candidates based on a multi-factor scoring system.
-    (Implementation from our Phase 3 design)
-    """
     WEIGHTS = {
         "semantic": 0.40,
         "popularity": 0.20,
@@ -12,41 +11,39 @@ class RankingEngine:
         "freshness": 0.15,
     }
 
-    def _popularity_score(self, views):
-        return min(log(views + 1) / 10.0, 1.0)
-
-    def _engagement_score(self, likes, views):
-        if views == 0: return 0
-        return min(likes / views, 1.0)
-
-    def _freshness_score(self, age_days):
-        return max(0.0, 1.0 - age_days / 365.0)
-
-    def rank(self, candidates: list[dict], user_profile: dict) -> list[dict]:
-        ranked_items = []
+    def rank(self, candidates: list[dict], user_id: str | None = None) -> list[dict]:
+        log.info(f"Ranking {len(candidates)} candidates for user '{user_id}'.")
+        
+        ranked_results = []
         for item in candidates:
-            # Mock scores for demonstration
-            item['views'] = item.get('views', 1000)
-            item['likes'] = item.get('likes', 100)
-            item['age_days'] = item.get('age_days', 10)
-            item['semantic_score'] = item.get('semantic_score', 0.8)
-
-            pop_score = self._popularity_score(item['views'])
-            eng_score = self._engagement_score(item['likes'], item['views'])
-            fresh_score = self._freshness_score(item['age_days'])
+            # ✅ Base score ពី version ចាស់
+            score = self._calculate_base_score(item)
             
-            final_score = (
-                item['semantic_score'] * self.WEIGHTS["semantic"] +
-                pop_score * self.WEIGHTS["popularity"] +
-                eng_score * self.WEIGHTS["engagement"] +
-                fresh_score * self.WEIGHTS["freshness"]
-            )
+            # ✅ Personalization bonus ពី version ថ្មី
+            if user_id:
+                score += personalization_engine_service.get_personalization_bonus(item, user_id)
             
-            item['ranking_score'] = round(final_score, 4)
-            ranked_items.append(item)
+            ranked_results.append({**item, "score": score})
 
-        # Sort by score, descending
-        ranked_items.sort(key=lambda x: x['ranking_score'], reverse=True)
-        return ranked_items
+        ranked_results.sort(key=lambda x: x["score"], reverse=True)
+        return ranked_results
+
+    def _calculate_base_score(self, item: dict) -> float:
+        # ✅ Logic ពេញលេញពី version ចាស់
+        views = item.get('views', 1000)
+        likes = item.get('likes', 100)
+        age_days = item.get('age_days', 10)
+        semantic_score = item.get('semantic_score', 0.8)
+
+        pop = min(math_log(views + 1) / 10.0, 1.0)
+        eng = min(likes / views, 1.0) if views > 0 else 0
+        fresh = max(0.0, 1.0 - age_days / 365.0)
+
+        return (
+            semantic_score * self.WEIGHTS["semantic"] +
+            pop * self.WEIGHTS["popularity"] +
+            eng * self.WEIGHTS["engagement"] +
+            fresh * self.WEIGHTS["freshness"]
+        )
 
 ranking_engine_service = RankingEngine()
