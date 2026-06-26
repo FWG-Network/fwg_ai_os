@@ -37,7 +37,8 @@ class Task(Base):
     goal_id = Column(UUID(as_uuid=True), ForeignKey("goals.id"))
     goal = relationship("Goal", back_populates="tasks")
 
-
+# 🚀 TOOL-AGENT UPGRADE: Add a column to specify the tool
+    tool_name = Column(String, default="llm_agent") # Default to 
 # ==========================================================
 # 🚀 UPGRADE V3: Trend Forecaster Models
 # These new tables will create the "Trend Memory"
