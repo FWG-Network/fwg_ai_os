@@ -37,3 +37,9 @@ pytest-asyncio
 functions-framework
 playwright
 fake-useragent
+
+# Hunnging Face Spaces 🤗
+fastapi
+gradio
+uvicorn
+requests
