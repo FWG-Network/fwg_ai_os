@@ -12,8 +12,7 @@ class TikTokHeadlessAgent:
     def _parse_api_response(self, api_response: dict) -> list[dict]:
         """
         🚀 TRANSPLANT from HasData's extract_useful_data function.
-        This part is responsible for transforming the raw TikTok API JSON
-        into our clean, internal data format.
+        Transforms the raw TikTok API JSON into our clean, internal data format.
         """
         results = []
         data_list = api_response.get("data", [])
@@ -26,6 +25,7 @@ class TikTokHeadlessAgent:
             author = item.get("author", {})
             stats = item.get("stats", {})
             
+            # Construct a full URL for easier access
             video_url = f"https://www.tiktok.com/@{author.get('uniqueId')}/video/{item.get('id')}"
 
             results.append({
@@ -38,7 +38,6 @@ class TikTokHeadlessAgent:
                 "likes": stats.get("diggCount", 0),
                 "comments": stats.get("commentCount", 0),
                 "shares": stats.get("shareCount", 0),
-                # Convert timestamp to ISO format if needed, or keep as is
                 "published_at": item.get("createTime"), 
             })
         return results
@@ -55,45 +54,37 @@ class TikTokHeadlessAgent:
             context = await browser.new_context(user_agent=self.ua.random)
             page = await context.new_page()
 
-            # This event will signal us when the API response is captured
             api_response_captured = asyncio.Event()
             api_response_data = None
 
-            # In backend/services/connectors/tiktok_agent.py
-# Inside the search method...
+            # This inner function is the "listener" for network traffic
+            async def handle_response(response):
+                nonlocal api_response_data
+                
+                # Diagnostic log to see all network traffic
+                print(f"   [Network Log] Intercepted: {response.request.method} {response.url[:100]}...")
+                
+                if "api/search/general/full/" in response.url and response.request.method == "GET":
+                    try:
+                        print(f"✅ SUCCESS: Intercepted the correct TikTok API Response!")
+                        api_response_data = await response.json()
+                        api_response_captured.set() # Signal that we got the data
+                    except Exception as e:
+                        print(f"⚠️ Could not parse the correct API response: {e}")
 
-async def handle_response(response):
-    nonlocal api_response_data
-    # 🚀 DIAGNOSTIC UPGRADE: Log ALL responses to see what's happening
-    print(f"   [Network Log] Intercepted: {response.request.method} {response.url[:100]}...")
-    
-    if "api/search/general/full/" in response.url and response.request.method == "GET":
-        try:
-            print(f"✅ SUCCESS: Intercepted the correct TikTok API Response!")
-            api_response_data = await response.json()
-            api_response_captured.set()
-        except Exception as e:
-            print(f"⚠️ Could not parse the correct API response: {e}")
+            # Attach the listener to the page
+            page.on("response", handle_response)
+            
+            # Main execution block
+            try:
+                search_url = f"https://www.tiktok.com/search/video?q={query}"
+                print(f"... Navigating to {search_url}")
+                # Use "networkidle" to wait for the page to be fully loaded
+                await page.goto(search_url, wait_until="networkidle", timeout=60000)
 
-page.on("response", handle_response)
-
-try:
-    search_url = f"https://www.tiktok.com/search/video?q={query}"
-    print(f"... Navigating to {search_url}")
-    # 🚀 DIAGNOSTIC UPGRADE: Increase navigation timeout
-    await page.goto(search_url, wait_until="networkidle", timeout=60000)
-
-    print("... Page navigation complete. Waiting for API response (up to 45s)...")
-    # 🚀 DIAGNOSTIC UPGRADE: Increase wait timeout
-    await asyncio.wait_for(api_response_captured.wait(), timeout=45000)
-    
-    # (inside the try block)
-            search_url = f"https://www.tiktok.com/search/video?q={query}"
-            print(f"... Navigating to {search_url}")
-            await page.goto(search_url, wait_until="networkidle", timeout=60000)
-
-            print("... Waiting for API response (up to 45s)...") # <--- CORRECT (aligned with lines above)
-            await asyncio.wait_for(api_response_captured.wait(), timeout=45000)
+                print("... Page navigation complete. Waiting for API response (up to 45s)...")
+                # Wait for our listener to signal that it has captured the API response
+                await asyncio.wait_for(api_response_captured.wait(), timeout=45000)
                 
                 if api_response_data:
                     parsed_results = self._parse_api_response(api_response_data)
@@ -112,8 +103,10 @@ try:
                 await page.screenshot(path=f"debug_error_{query}.png")
                 return []
             finally:
+                # Ensure the browser is always closed, even if errors occur
                 await browser.close()
         
+        # This line is unlikely to be reached but is good practice
         return []
 
 tiktok_agent = TikTokHeadlessAgent()
