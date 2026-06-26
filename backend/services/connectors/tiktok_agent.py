@@ -87,12 +87,13 @@ try:
     # 🚀 DIAGNOSTIC UPGRADE: Increase wait timeout
     await asyncio.wait_for(api_response_captured.wait(), timeout=45000)
     
-    # ... (rest of the code is the same) ...
+    # (inside the try block)
+            search_url = f"https://www.tiktok.com/search/video?q={query}"
+            print(f"... Navigating to {search_url}")
+            await page.goto(search_url, wait_until="networkidle", timeout=60000)
 
-                print("... Waiting for API response ...")
-                # Wait for our handle_response function to capture the data,
-                # with a timeout in case it never happens.
-                await asyncio.wait_for(api_response_captured.wait(), timeout=30000)
+            print("... Waiting for API response (up to 45s)...") # <--- CORRECT (aligned with lines above)
+            await asyncio.wait_for(api_response_captured.wait(), timeout=45000)
                 
                 if api_response_data:
                     parsed_results = self._parse_api_response(api_response_data)
