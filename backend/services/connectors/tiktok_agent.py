@@ -59,23 +59,35 @@ class TikTokHeadlessAgent:
             api_response_captured = asyncio.Event()
             api_response_data = None
 
-            async def handle_response(response):
-                nonlocal api_response_data
-                # The "golden" URL we want to intercept
-                if "api/search/general/full/" in response.url and response.request.method == "GET":
-                    try:
-                        print(f"✅ Intercepted TikTok API Response from: {response.url}")
-                        api_response_data = await response.json()
-                        api_response_captured.set() # Signal that we got the data
-                    except Exception as e:
-                        print(f"⚠️ Could not parse API response: {e}")
+            # In backend/services/connectors/tiktok_agent.py
+# Inside the search method...
 
-            page.on("response", handle_response)
-            
-            try:
-                search_url = f"https://www.tiktok.com/search/video?q={query}"
-                print(f"... Navigating to {search_url}")
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=45000)
+async def handle_response(response):
+    nonlocal api_response_data
+    # 🚀 DIAGNOSTIC UPGRADE: Log ALL responses to see what's happening
+    print(f"   [Network Log] Intercepted: {response.request.method} {response.url[:100]}...")
+    
+    if "api/search/general/full/" in response.url and response.request.method == "GET":
+        try:
+            print(f"✅ SUCCESS: Intercepted the correct TikTok API Response!")
+            api_response_data = await response.json()
+            api_response_captured.set()
+        except Exception as e:
+            print(f"⚠️ Could not parse the correct API response: {e}")
+
+page.on("response", handle_response)
+
+try:
+    search_url = f"https://www.tiktok.com/search/video?q={query}"
+    print(f"... Navigating to {search_url}")
+    # 🚀 DIAGNOSTIC UPGRADE: Increase navigation timeout
+    await page.goto(search_url, wait_until="networkidle", timeout=60000)
+
+    print("... Page navigation complete. Waiting for API response (up to 45s)...")
+    # 🚀 DIAGNOSTIC UPGRADE: Increase wait timeout
+    await asyncio.wait_for(api_response_captured.wait(), timeout=45000)
+    
+    # ... (rest of the code is the same) ...
 
                 print("... Waiting for API response ...")
                 # Wait for our handle_response function to capture the data,
