@@ -32,3 +32,8 @@ qdrant-client
 # --- Testing Framework ---
 pytest
 pytest-asyncio
+
+# cloud_functions/requirements.txt
+functions-framework
+playwright
+fake-useragent
