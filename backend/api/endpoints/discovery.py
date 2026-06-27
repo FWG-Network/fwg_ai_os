@@ -24,3 +24,15 @@ async def run_discovery_pipeline(request: DiscoveryRequest):
 
     # 3. Consistent response format
     return {"ranked_content": ranked_candidates}
+    
+# backend/api/endpoints/discovery.py
+@router.post("/discover")
+async def run_discovery_pipeline(request: DiscoveryRequest):
+    candidates = await discovery_engine_service.discover(request.topic)
+
+    # ✅ await ព្រោះ rank() ជា async ហើយ
+    ranked = await ranking_engine_service.rank(
+        candidates,
+        user_id=request.user_id,
+    )
+    return {"ranked_content": ranked}
