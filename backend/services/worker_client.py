@@ -16,6 +16,7 @@ class WorkerClient:
     """
 
     MAX_RETRIES = 3
+    RETRY_DELAYS = [0.5, 1.0]  # fast retry — local docker service, មិនមែន remote HF Space
 
     def __init__(self):
         self.base_url = f"http://{settings.WORKER_HOST}:{settings.WORKER_PORT}"
