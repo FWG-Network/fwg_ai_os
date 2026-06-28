@@ -1,5 +1,14 @@
+# backend/services/discovery_engine.py
+import asyncio
+import json
+from typing import Dict, List, Optional
+
 from sqlalchemy.orm import Session
 from backend.services.connectors.youtube import youtube_connector
+from backend.core.config import settings
+from backend.core.logger import log
+
+import redis
 
 MODIFIERS = ["viral", "shocking", "epic", "new"]
 
@@ -9,37 +18,74 @@ PLATFORMS_PENDING = [
     "reddit (blocked — Devvit Developer Platform registration required)",
 ]
 
+CACHE_TTL_SECONDS = 3600  # 1 hour
+
 
 class DiscoveryEngine:
 
-    def _build_queries(self, topic: str) -> list[str]:
+    def __init__(self):
+        self._redis_client = None  # ★ FIX 2: lazy — fork-safe, matches PersonalizationEngine
+
+    def _get_redis(self):
+        if self._redis_client is None:
+            try:
+                self._redis_client = redis.Redis(
+                    host=settings.REDIS_HOST, port=6379, db=2, decode_responses=True
+                )
+                self._redis_client.ping()
+            except redis.exceptions.ConnectionError as e:
+                log.error(f"[DiscoveryEngine] Redis unavailable: {e}")
+                self._redis_client = False
+        return self._redis_client or None
+
+    def _build_queries(self, topic: str) -> List[str]:  # ★ FIX 3: List[str] type hints
         queries = [topic]
         for modifier in MODIFIERS:
             queries.append(f"{modifier} {topic}")
         return list(set(queries))
 
-    async def discover(self, topic: str, limit_per_query: int = 5) -> list[dict]:
-        """
-        ⚠️ Quota cost ខ្ពស់: topic + 4 modifiers = 5 queries × 100 units = ~500
-        units/ការហៅ (free quota ប្រចាំថ្ងៃ = ~20 ការហៅ ប៉ុណ្ណោះ)
-        """
+    async def discover(self, topic: str, limit_per_query: int = 5) -> List[Dict]:
+        cache_key = f"discovery:{topic}:{limit_per_query}"
+        r = self._get_redis()
+
+        if r:  # ★ FIX 2: Redis cache, TTL 1hr
+            try:
+                cached = r.get(cache_key)
+                if cached:
+                    log.info(f"[DiscoveryEngine] Cache hit for '{topic}'")
+                    return json.loads(cached)
+            except Exception as e:
+                log.warning(f"[DiscoveryEngine] Cache read failed: {e}")
+
         queries = self._build_queries(topic)
-        all_candidates = []
+        all_candidates: List[Dict] = []
 
         for query in queries:
-            results = await youtube_connector.search(query, limit=limit_per_query)
-            all_candidates.extend(results)
+            try:  # ★ FIX 1: try/except per query
+                results = await youtube_connector.search(query, limit=limit_per_query)
+                all_candidates.extend(results)
+            except Exception as e:
+                log.warning(f"[Discovery] Query '{query}' failed: {e}")
+                continue
+
+            await asyncio.sleep(0.5)  # ★ FIX 4: rate limit between queries
 
         seen_ids = set()
-        deduped = []
+        deduped: List[Dict] = []
         for item in all_candidates:
             if item["id"] not in seen_ids:
                 seen_ids.add(item["id"])
                 deduped.append(item)
 
+        if r:
+            try:
+                r.setex(cache_key, CACHE_TTL_SECONDS, json.dumps(deduped))
+            except Exception as e:
+                log.warning(f"[DiscoveryEngine] Cache write failed: {e}")
+
         return deduped
 
-    async def smart_discover(self, topic: str, db: Session) -> dict:
+    async def smart_discover(self, topic: str, db: Session) -> Dict:
         competitor_result = await youtube_connector.suggest_from_known_channels(
             db=db, theme_keyword=topic,
         )
