@@ -1,14 +1,10 @@
-# backend/services/connectors/youtube.py
-
 import re
 import httpx
 from datetime import datetime, timedelta
 
-# 🚀 REFACTORED: Import modern SQLAlchemy components
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from backend.models.db import Creator, CreatorMention
-# ===============================================
 
 from backend.core.config import settings
 
@@ -16,21 +12,23 @@ SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos"
 CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
 
-# 🚀 REFACTORED: Use the improved, more specific Regex
 CREDIT_HANDLE_PATTERN = re.compile(r'@([a-zA-Z0-9_.-]{3,30})')
-# ===============================================
 
 REPOST_KEYWORDS = ["compilation", "reaction to", "react to", "reupload", "best of"]
-KNOWN_RANKING_CHANNELS = ["PolarRanks", "oogway_ranks", "mrpurifiedwater", "Data Drip"]
+
+# ⚠️ "Data Drip" - មិនទាន់ verify @handle ត្រឹមត្រូវ (space invalid ក្នុង YouTube handle)
+KNOWN_RANKING_CHANNELS = [
+    "PolarRanks",
+    "oogway_ranks",
+    "mrpurifiedwater",
+    # "Data Drip",  # TODO: confirm real @handle មុនដក comment
+]
+
 
 class YouTubeConnector:
 
     def __init__(self):
         self._channel_id_cache: dict[str, str | None] = {}
-
-    # ==========================================================
-    # --- UNCHANGED METHODS START HERE ---
-    # ==========================================================
 
     async def _resolve_channel_id(self, client: httpx.AsyncClient, handle: str) -> str | None:
         if handle in self._channel_id_cache:
@@ -85,8 +83,39 @@ class YouTubeConnector:
         if not settings.YOUTUBE_API_KEY:
             print("⚠️ WARNING: YOUTUBE_API_KEY not set. Mock data returned.")
             return []
-        # ... (rest of the search method logic is unchanged)
-        # ... it's safe to keep the original code here ...
+
+        limit = min(limit, 50)
+        start_time = datetime.utcnow() - timedelta(days=days_ago_start)
+        end_time = datetime.utcnow() - timedelta(days=days_ago_end)
+        params = {
+            "part": "snippet", "q": query, "key": settings.YOUTUBE_API_KEY,
+            "maxResults": limit, "type": "video", "order": "viewCount",
+            "publishedAfter": start_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+            "publishedBefore": end_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        }
+        if region_code:
+            params["regionCode"] = region_code
+        if relevance_language:
+            params["relevanceLanguage"] = relevance_language
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                resp = await client.get(SEARCH_URL, params=params)
+                resp.raise_for_status()
+                items = resp.json().get("items", [])
+                if not items:
+                    return []
+                video_ids = ",".join(i["id"]["videoId"] for i in items)
+                detail_resp = await client.get(VIDEOS_URL, params={
+                    "part": "snippet,statistics", "id": video_ids,
+                    "key": settings.YOUTUBE_API_KEY,
+                })
+                detail_resp.raise_for_status()
+                detail_map = {v["id"]: v for v in detail_resp.json().get("items", [])}
+                return self._build_results(items, detail_map, min_views, exclude_reposts)
+            except Exception as e:
+                print(f"❌ ERROR search(): {e}")
+                return []
 
     async def get_trending(
         self, region_code: str = "US", category_id: str = "24",
@@ -94,27 +123,43 @@ class YouTubeConnector:
     ) -> list[dict]:
         if not settings.YOUTUBE_API_KEY:
             return []
-        # ... (rest of the get_trending method logic is unchanged)
-        # ... it's safe to keep the original code here ...
-    
-    # ==========================================================
-    # --- REFACTORED & NEW METHODS START HERE ---
-    # ==========================================================
+        params = {
+            "part": "snippet,statistics", "chart": "mostPopular",
+            "regionCode": region_code, "videoCategoryId": category_id,
+            "maxResults": min(limit, 50), "key": settings.YOUTUBE_API_KEY,
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                resp = await client.get(VIDEOS_URL, params=params)
+                resp.raise_for_status()
+                items = resp.json().get("items", [])
+                detail_map = {v["id"]: v for v in items}
+                fake_items = [{"id": v["id"], "snippet": v["snippet"]} for v in items]
+                return self._build_results(fake_items, detail_map, min_views, exclude_reposts)
+            except Exception as e:
+                print(f"❌ ERROR get_trending(): {e}")
+                return []
 
     def _persist_mention(self, db: Session, creator_handle: str, source_handle: str, video_url: str) -> None:
-        """Helper function to persist a single creator mention to the database."""
         stmt = select(Creator).where(Creator.handle == creator_handle)
         creator = db.execute(stmt).scalar_one_or_none()
-        
+
         if not creator:
             creator = Creator(handle=creator_handle)
             db.add(creator)
             db.flush()
-            
+
+        exists_stmt = select(CreatorMention).where(
+            CreatorMention.creator_id == creator.id,
+            CreatorMention.source_video_url == video_url,
+        )
+        if db.execute(exists_stmt).scalar_one_or_none():
+            return
+
         mention = CreatorMention(
             creator_id=creator.id,
             source_channel=source_handle,
-            source_video_url=video_url
+            source_video_url=video_url,
         )
         db.add(mention)
 
@@ -139,6 +184,7 @@ class YouTubeConnector:
                 try:
                     channel_id = await self._resolve_channel_id(client, source_handle)
                     if not channel_id:
+                        print(f"⚠️ Could not resolve channel: {source_handle}")
                         continue
 
                     search_resp = await client.get(SEARCH_URL, params={
@@ -150,7 +196,7 @@ class YouTubeConnector:
                     videos = search_resp.json().get("items", [])
                     if not videos:
                         continue
-                    
+
                     video_ids = ",".join(v["id"]["videoId"] for v in videos)
                     detail_resp = await client.get(VIDEOS_URL, params={
                         "part": "snippet", "id": video_ids, "key": settings.YOUTUBE_API_KEY,
@@ -175,22 +221,21 @@ class YouTubeConnector:
                             "url": video_url,
                             "credited_handles": list(credited_handles),
                         })
+
+                    db.commit()  # ★ commit ដាច់ដោយឡែករាល់ channel
+
                 except Exception as e:
                     print(f"❌ ERROR checking channel {source_handle}: {e}")
                     db.rollback()
                     continue
 
-        try:
-            db.commit()
-            print(f"✅ Investigator: Scan complete. Persisted {sum(handle_counts.values())} new mentions.")
-        except Exception as e:
-            print(f"❌ DATABASE ERROR: Could not commit. Rolling back. Error: {e}")
-            db.rollback()
+        print(f"✅ Investigator: Scan complete. Persisted {sum(handle_counts.values())} mentions.")
 
         return {
             "matched_videos": all_matched_videos,
             "source_creators_ranked": sorted(handle_counts.items(), key=lambda x: x[1], reverse=True),
             "channels_checked": channels,
         }
+
 
 youtube_connector = YouTubeConnector()
