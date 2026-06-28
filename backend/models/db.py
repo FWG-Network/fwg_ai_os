@@ -13,11 +13,9 @@ from sqlalchemy import create_engine
 
 try:
     from backend.core.config import settings
-    
-DB_URL = getattr(settings, "DATABASE_URL", "postgresql://...")  # ប្រើ settings ជាមុន
+    DB_URL = getattr(settings, "DATABASE_URL", "postgresql://...")  # ★ indent ឲ្យត្រូវ
 except Exception:
-    DB_URL = "postgresql://..."  # fallback តែប្រសិនបើ import បរាជ័យ
-
+    DB_URL = "postgresql://..."
 def _now() -> datetime:
     return datetime.now(timezone.utc)   # ✅ fix: utcnow deprecated
 
