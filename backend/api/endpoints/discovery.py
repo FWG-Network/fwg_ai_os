@@ -16,47 +16,46 @@ async def run_discovery_pipeline(
     request: DiscoveryRequest,
     mode: Literal["simple", "smart"] = Query(
         default="smart",
-        description="simple=direct search | smart=competitor analysis + DB persist"
+        description="simple=direct | smart=PolarRanks competitor analysis"
     ),
     db: Session = Depends(get_db),
 ):
     """
     Discovery + Ranking pipeline.
 
-    **mode=simple** — direct search (fast, no DB)
-    **mode=smart**  — reverse-engineer creator credits
-                      from competitor channels (Oogway Ranks etc.)
+    **mode=smart**  — scan PolarRanks/Oogway → extract creators → rank
+    **mode=simple** — direct YouTube search → rank
     """
     log.info(f"[Discovery] mode={mode} topic='{request.topic}' user='{request.user_id}'")
 
-    # ── SMART MODE (V1) ───────────────────────────────────────────────
+    # ── SMART MODE — PolarRanks competitor analysis ───────────────────
     if mode == "smart":
         try:
             from backend.services.discovery_engine import discovery_engine_service
             result = await discovery_engine_service.smart_discover(request.topic, db)
 
-            # ✅ V3: await async rank
-            ranked = await ranking_engine_service.rank(
+            # ✅ rank() is sync — NO await
+            ranked = ranking_engine_service.rank(
                 result.get("trending_candidates", []),
                 user_id=request.user_id,
             )
 
             return {
                 "mode":                      "smart",
-                "ranked_content":            ranked,
-                "source_creators_found":     result.get("source_creators_found", []),
-                "matched_competitor_videos": result.get("matched_competitor_videos", []),
-                "platforms_scanned":         result.get("platforms_scanned", []),
-                "platforms_pending":         result.get("platforms_pending", []),
+                "topic":                     request.topic,   # ✅ Dev
                 "total":                     len(ranked),
+                "ranked_content":            ranked,
+                "source_creators_found":     result.get("source_creators_found",     []),
+                "matched_competitor_videos": result.get("matched_competitor_videos", []),
+                "platforms_scanned":         result.get("platforms_scanned",         []),
+                "platforms_pending":         result.get("platforms_pending",         []),
             }
 
         except Exception as e:
-            log.warning(f"[Discovery] Smart mode failed → fallback simple: {e}")
-            # ✅ Fallback to simple if smart fails
-            mode = "simple"
+            log.warning(f"[Discovery] Smart failed → fallback simple: {e}")
+            mode = "simple"  # ✅ explicit fallback
 
-    # ── SIMPLE MODE (V2+V3) ───────────────────────────────────────────
+    # ── SIMPLE MODE — direct search ───────────────────────────────────
     try:
         from backend.services.discovery_engine import discovery_engine_service
         candidates = await discovery_engine_service.discover(request.topic)
@@ -64,15 +63,17 @@ async def run_discovery_pipeline(
         log.warning(f"[Discovery] Engine failed: {e}")
         candidates = []
 
-    ranked = await ranking_engine_service.rank(
+    # ✅ rank() is sync — NO await
+    ranked = ranking_engine_service.rank(
         candidates,
         user_id=request.user_id,
     )
 
     return {
-        "mode":            "simple",
-        "ranked_content":  ranked,
-        "total":           len(ranked),
+        "mode":           "simple",
+        "topic":          request.topic,   # ✅ Dev
+        "total":          len(ranked),
+        "ranked_content": ranked,
     }
 
 
