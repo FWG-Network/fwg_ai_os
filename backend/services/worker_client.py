@@ -16,7 +16,7 @@ class WorkerClient:
     """
 
     MAX_RETRIES = 3
-    RETRY_DELAYS = [0.5, 1.0]  # fast retry — local docker service, មិនមែន remote HF Space
+    RETRY_DELAYS = [0.5, 1.0]  # fast retry — local docker service, មិនមែន remote HF Space #add new
 
     def __init__(self):
         self.base_url = f"http://{settings.WORKER_HOST}:{settings.WORKER_PORT}"
@@ -74,7 +74,7 @@ class WorkerClient:
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 last_exc = e
                 if attempt < self.MAX_RETRIES - 1:
-                    wait = 30 if attempt == 0 else 60
+                    wait = self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)] #add new
                     log.warning(
                         f"[WorkerClient] {method} {url} failed "
                         f"(attempt {attempt+1}/{self.MAX_RETRIES}) "
