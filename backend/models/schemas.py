@@ -36,3 +36,29 @@ class MultimodalResponse(BaseModel):
     image_embedding: Optional[List[float]] = None
     speech_to_text: Optional[str] = None
     ocr_text: Optional[str] = None
+
+
+class FeedbackEvent(BaseModel):
+    user_id:    str
+    item_id:    str
+    event_type: str    # "like"|"dislike"|"skip"|"watch_time"|"impression"
+    value:      float = 1.0
+
+
+class TaskRequest(BaseModel):
+    goal:    str
+    user_id: Optional[str] = None
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    status:  str           # "received"|"planning"|"executing"|"completed"|"failed"
+    result:  Optional[dict] = None
+    error:   Optional[str]  = None
+
+# --- Memory / Knowledge Base ---
+class ContentItem(BaseModel):
+    id: Optional[str] = None
+    text: str
+    metadata: Optional[dict] = None
+    embedding: Optional[List[float]] = None

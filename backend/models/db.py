@@ -1,111 +1,131 @@
-# backend/models/db.py
-
-import uuid
+from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import (
-    create_engine, Column, String, Text, ForeignKey,
-    Integer, DateTime, func
+    String, Integer, Float,
+    DateTime, ForeignKey, JSON, Text,
 )
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import (
+    DeclarativeBase, Mapped,
+    mapped_column, relationship,
+    sessionmaker,
+)
+from sqlalchemy import create_engine
 
-from backend.core.config import settings
+try:
+    from backend.core.config import settings
+    DB_URL = getattr(settings, "DATABASE_URL",
+             "postgresql://aios_user:aios_password@aios_db/aios_db")
+except Exception:
+    # ✅ Dev: fallback PostgreSQL (matches docker-compose.yml)
+    DB_URL = "postgresql://aios_user:aios_password@aios_db/aios_db"
 
-# ==========================================================
-# Database Setup (No Changes Here)
-# ==========================================================
-engine = create_engine(settings.DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)   # ✅ fix: utcnow deprecated
 
 
-# ==========================================================
-# Existing AI-OS Core Models (No Changes Here)
-# ==========================================================
-class Goal(Base):
-    __tablename__ = "goals"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    description = Column(Text, nullable=False)
-    status = Column(String, default="pending")
-    tasks = relationship("Task", back_populates="goal")
+# ─── Base ─────────────────────────────────────────────────────────────
+class Base(DeclarativeBase):
+    pass
 
-class Task(Base):
-    __tablename__ = "tasks"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    description = Column(Text, nullable=False)
-    status = Column(String, default="pending")
-    result = Column(Text, nullable=True)
-    goal_id = Column(UUID(as_uuid=True), ForeignKey("goals.id"))
-    goal = relationship("Goal", back_populates="tasks")
 
-# 🚀 TOOL-AGENT UPGRADE: Add a column to specify the tool
-    tool_name = Column(String, default="llm_agent") # Default to 
-# ==========================================================
-# 🚀 UPGRADE V3: Trend Forecaster Models
-# These new tables will create the "Trend Memory"
-# ==========================================================
+# ─── Creator ──────────────────────────────────────────────────────────
 class Creator(Base):
-    """
-    Stores information about a unique content creator.
-    This table acts as the central directory for all creators discovered.
-    """
     __tablename__ = "creators"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    # The unique YouTube handle (e.g., '@MrBeast'). Indexed for fast lookups.
-    handle = Column(String, unique=True, index=True, nullable=False)
-    
-    # This relationship creates a link to the CreatorMention table.
-    # It allows you to easily query all mentions for a specific creator.
-    # e.g., my_creator.mentions
-    mentions = relationship("CreatorMention", back_populates="creator", cascade="all, delete-orphan")
 
-    def __repr__(self):
-        return f"<Creator(handle='{self.handle}')>"
+    id:         Mapped[int]  = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
+    handle:     Mapped[str]  = mapped_column(String(100), unique=True, index=True, nullable=False)
+    platform:   Mapped[str]  = mapped_column(String(50),  default="youtube")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
+    mentions: Mapped[list["CreatorMention"]] = relationship(back_populates="creator")
+
+    def __repr__(self) -> str:
+        return f"<Creator handle={self.handle}>"
+
+
+# ─── CreatorMention ───────────────────────────────────────────────────
 class CreatorMention(Base):
-    """
-    Records a single instance of a creator being mentioned or credited.
-    Each row is a "data point" in our trend analysis.
-    """
     __tablename__ = "creator_mentions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    
-    # Foreign key linking this mention back to the Creator table.
-    creator_id = Column(Integer, ForeignKey("creators.id"), nullable=False)
-    
-    # The timestamp of when this mention was recorded.
-    # `server_default=func.now()` means PostgreSQL will automatically set the current time.
-    mentioned_at = Column(DateTime, server_default=func.now())
-    
-    # Information about where the mention was found.
-    source_channel = Column(String, nullable=False) # e.g., 'PolarRanks'
-    source_video_url = Column(String, nullable=False)
-    
-    # This relationship links back to the Creator object.
-    # It allows you to access creator details from a mention object.
-    # e.g., my_mention.creator.handle
-    creator = relationship("Creator", back_populates="mentions")
+    id:               Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    creator_id:       Mapped[int] = mapped_column(ForeignKey("creators.id"), nullable=False)
+    source_channel:   Mapped[str] = mapped_column(String(100), nullable=False)
+    source_video_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    mentioned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
-    def __repr__(self):
-        return f"<CreatorMention(creator_handle='{self.creator.handle}' at {self.mentioned_at})>"
+    creator: Mapped["Creator"] = relationship(back_populates="mentions")
+
+    def __repr__(self) -> str:
+        return f"<CreatorMention creator_id={self.creator_id}>"
 
 
-# ==========================================================
-# Create all tables if they don't exist
-# This line will now create 'goals', 'tasks', 'creators', and 'creator_mentions'
-# ==========================================================
-print("🚀 Initializing database and creating tables if they don't exist...")
-Base.metadata.create_all(bind=engine)
-print("✅ Database tables initialized.")
+# ─── Goal (aios) ──────────────────────────────────────────────────────
+class Goal(Base):
+    __tablename__ = "goals"
+
+    id:          Mapped[int]            = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id:     Mapped[Optional[str]]  = mapped_column(String(100), nullable=True)
+    description: Mapped[str]            = mapped_column(Text, nullable=False)
+    status:      Mapped[str]            = mapped_column(String(50), default="pending")
+    created_at:  Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=_now)
+
+    tasks: Mapped[list["Task"]] = relationship(back_populates="goal")
+
+    def __repr__(self) -> str:
+        return f"<Goal id={self.id} status={self.status}>"
 
 
-# ==========================================================
-# Database Session Dependency (No Changes Here)
-# ==========================================================
+# ─── Task (task_planner.py) ───────────────────────────────────────────
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id:          Mapped[int]             = mapped_column(Integer, primary_key=True, autoincrement=True)
+    goal_id:     Mapped[int]             = mapped_column(ForeignKey("goals.id"), nullable=False)
+    description: Mapped[str]             = mapped_column(Text, nullable=False)
+    tool_name:   Mapped[Optional[str]]   = mapped_column(String(100), nullable=True)
+    tool_params: Mapped[Optional[dict]]  = mapped_column(JSON, nullable=True)
+    status:      Mapped[str]             = mapped_column(String(50), default="pending")
+    result:      Mapped[Optional[dict]]  = mapped_column(JSON, nullable=True)
+    created_at:  Mapped[datetime]        = mapped_column(DateTime(timezone=True), default=_now)
+
+    goal: Mapped["Goal"] = relationship(back_populates="tasks")
+
+    def __repr__(self) -> str:
+        return f"<Task id={self.id} tool={self.tool_name} status={self.status}>"
+
+
+# ─── User (personalization) ───────────────────────────────────────────
+class User(Base):
+    __tablename__ = "users"
+
+    id:         Mapped[int]            = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id:    Mapped[str]            = mapped_column(String(100), unique=True, nullable=False)
+    interests:  Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime]       = mapped_column(DateTime(timezone=True), default=_now)
+
+    def __repr__(self) -> str:
+        return f"<User user_id={self.user_id}>"
+
+
+# ─── Engine + Session ─────────────────────────────────────────────────
+engine       = create_engine(DB_URL, echo=False)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
 def get_db():
+    """FastAPI dependency."""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+def init_db() -> None:
+    """Create all tables at startup."""
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database tables created/updated.")
+
+# ✅ Dev: alias for compatibility
+create_db_and_tables = init_db

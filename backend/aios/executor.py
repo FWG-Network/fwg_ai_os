@@ -1,12 +1,10 @@
-# backend/aios/executor.py
 import asyncio
-from typing import List
+from typing import List, Any
 from sqlalchemy.orm import Session
 
 # 🚀 TOOL-AGENT UPGRADE: Import the actual tools/services the agent can use
 from backend.services.connectors.youtube import youtube_connector
 from backend.services.trend_analysis_service import trend_analysis_service
-from backend.core.services import llm_orchestrator_service
 from backend.models.db import Task as TaskModel
 
 class Executor:
@@ -58,6 +56,7 @@ class Executor:
                 return trend_analysis_service.get_trend_briefing(db)
             elif task.tool_name == "llm_agent":
                 # This is the default, general-purpose tool
+                from backend.core.services import llm_orchestrator_service  # deferred to avoid circular import
                 response_data = llm_orchestrator_service.generate_response(
                     query=task.description,
                     user_id="aios_system_user" # Assume a system user

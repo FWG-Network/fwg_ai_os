@@ -14,3 +14,5 @@ class ReflectionEngine:
 
         print("Reflection: All tasks successful. Goal achieved.")
         return "SUCCESS"
+
+reflection_service = ReflectionEngine()
