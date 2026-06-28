@@ -13,12 +13,10 @@ from sqlalchemy import create_engine
 
 try:
     from backend.core.config import settings
-    DB_URL = getattr(settings, "DATABASE_URL",
-             "postgresql://aios_user:aios_password@aios_db/aios_db")
+    
+DB_URL = getattr(settings, "DATABASE_URL", "postgresql://...")  # ប្រើ settings ជាមុន
 except Exception:
-    # ✅ Dev: fallback PostgreSQL (matches docker-compose.yml)
-    DB_URL = "postgresql://aios_user:aios_password@aios_db/aios_db"
-
+    DB_URL = "postgresql://..."  # fallback តែប្រសិនបើ import បរាជ័យ
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)   # ✅ fix: utcnow deprecated
