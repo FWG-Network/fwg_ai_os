@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from typing import List
 
 from backend.models.schemas import ContentItem
-from backend.llm.rag_memory_service import rag_memory_service
+from backend.lim.rag_memory_service import rag_memory_service
 from backend.core.logger import log
 
 router = APIRouter()

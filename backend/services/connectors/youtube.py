@@ -1,6 +1,6 @@
 import re
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -85,8 +85,8 @@ class YouTubeConnector:
             return []
 
         limit = min(limit, 50)
-        start_time = datetime.utcnow() - timedelta(days=days_ago_start)
-        end_time = datetime.utcnow() - timedelta(days=days_ago_end)
+        start_time = datetime.now(timezone.utc) - timedelta(days=days_ago_start)
+        end_time = datetime.now(timezone.utc) - timedelta(days=days_ago_end)
         params = {
             "part": "snippet", "q": query, "key": settings.YOUTUBE_API_KEY,
             "maxResults": limit, "type": "video", "order": "viewCount",

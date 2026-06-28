@@ -3,7 +3,7 @@
 import uuid
 from qdrant_client import models
 from backend.core.services import qdrant_client
-from backend.llm.embedding_service import embedding_service
+from backend.lim.embedding_service import embedding_service
 
 class RAGMemoryService:
     """

@@ -7,22 +7,25 @@ from backend.core.config import settings
 app = FastAPI(
     title=settings.APP_NAME,
     version="4.0",
-    description="Autonomous Intelligence Operating System - Production Ready Blueprint"
+    description="Autonomous Intelligence Operating System - Production Ready Blueprint",
 )
-# *** FIX: Add CORS middleware for frontend integration ***
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this to your frontend's domain
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(api_router)
 app.include_router(os_router)
+
+
 @app.get("/")
 def root():
     return {
         "system": settings.APP_NAME,
         "status": "online",
-        "architecture_phase": 30
+        "architecture_phase": 30,
     }

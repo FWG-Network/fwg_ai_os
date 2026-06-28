@@ -41,7 +41,7 @@ from backend.services.discovery_engine import DiscoveryEngine
 from backend.services.ranking_engine import RankingEngine
 from backend.services.personalization_engine import PersonalizationEngine
 from backend.services.multimodal_engine import MultimodalEngine
-from backend.llm.orchestrator import LLMOrchestrator
+from backend.lim.orchestrator import LLMOrchestrator
 
 # --- Singleton Service Instances ---
 print("Instantiating INDEPENDENT singleton service instances...")
