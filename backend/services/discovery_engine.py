@@ -1,42 +1,60 @@
-import httpx
+from sqlalchemy.orm import Session
+from backend.services.connectors.youtube import youtube_connector
+
+MODIFIERS = ["viral", "shocking", "epic", "new"]
+
+PLATFORMS_AVAILABLE = ["youtube"]
+PLATFORMS_PENDING = [
+    "tiktok (architecture unresolved — Apify vs HF Space delegation)",
+    "reddit (blocked — Devvit Developer Platform registration required)",
+]
+
 
 class DiscoveryEngine:
-    """
-    Handles the discovery of new content candidates from various sources.
-    (This is a simplified version of our Phase 2 design)
-    """
-    MODIFIERS = ["viral", "shocking", "epic", "new"]
 
     def _build_queries(self, topic: str) -> list[str]:
         queries = [topic]
-        for modifier in self.MODIFIERS:
+        for modifier in MODIFIERS:
             queries.append(f"{modifier} {topic}")
         return list(set(queries))
 
-    async def _search_youtube(self, query: str):
-        # This is a mock search. A real implementation would use the YouTube Data API.
-        print(f"Searching YouTube for: '{query}'")
-        return [{"id": f"yt_{query.replace(' ','_')}", "title": query, "platform": "youtube", "tags": [query.split(' ')[-1]]}]
-
-    async def _search_reddit(self, query: str):
-        # This is a mock search. A real implementation would use the Reddit API.
-        print(f"Searching Reddit for: '{query}'")
-        return [{"id": f"rd_{query.replace(' ','_')}", "title": query, "platform": "reddit", "tags": [query.split(' ')[-1]]}]
-
-    async def discover(self, topic: str) -> list[dict]:
+    async def discover(self, topic: str, limit_per_query: int = 5) -> list[dict]:
         """
-
-        Discovers content for a given topic by expanding queries and searching sources.
+        ⚠️ Quota cost ខ្ពស់: topic + 4 modifiers = 5 queries × 100 units = ~500
+        units/ការហៅ (free quota ប្រចាំថ្ងៃ = ~20 ការហៅ ប៉ុណ្ណោះ)
         """
         queries = self._build_queries(topic)
         all_candidates = []
-        
-        # In a real system, these searches would run concurrently using httpx.AsyncClient
+
         for query in queries:
-            all_candidates.extend(await self._search_youtube(query))
-            all_candidates.extend(await self._search_reddit(query))
-        
-        # Deduplication logic would go here
-        return all_candidates
+            results = await youtube_connector.search(query, limit=limit_per_query)
+            all_candidates.extend(results)
+
+        seen_ids = set()
+        deduped = []
+        for item in all_candidates:
+            if item["id"] not in seen_ids:
+                seen_ids.add(item["id"])
+                deduped.append(item)
+
+        return deduped
+
+    async def smart_discover(self, topic: str, db: Session) -> dict:
+        competitor_result = await youtube_connector.suggest_from_known_channels(
+            db=db, theme_keyword=topic,
+        )
+        trending_result = await youtube_connector.get_trending(
+            category_id="24", min_views=10000,
+        )
+
+        return {
+            "topic": topic,
+            "source_creators_found": competitor_result.get("source_creators_ranked", []),
+            "matched_competitor_videos": competitor_result.get("matched_videos", []),
+            "trending_candidates": trending_result[:10],
+            "platforms_scanned": PLATFORMS_AVAILABLE,
+            "platforms_pending": PLATFORMS_PENDING,
+        }
+
 
 discovery_engine_service = DiscoveryEngine()
