@@ -1,29 +1,53 @@
-import json
-from .events import UserEvent
-# ★★★ FIX: Import the *classes*, not the service instances ★★★
-from .reward import RewardEngine
-from .online_learning import OnlineLearning
-# We no longer need redis_client here, the caller will handle persistence.
+"""
+backend/learning/trainer.py
+Trainer — orchestrates reward + learning pipeline.
+Uses Dependency Injection for testability.
+"""
+from backend.core.logger import log
+
 
 class Trainer:
-    # ★★★ FIX: Use Dependency Injection ★★★
-    def __init__(self, reward_engine: RewardEngine, learning_engine: OnlineLearning):
-        """
-        Initializes the Trainer with its dependencies. This makes the class
-        decoupled and easier to test.
-        """
-        self.reward_engine = reward_engine
+    """
+    Processes user events → updates interest profile.
+
+    Design: Dependency Injection (no circular imports)
+    - reward_engine:   calculates reward score
+    - learning_engine: applies reward to profile
+    """
+
+    def __init__(self, reward_engine, learning_engine):
+        self.reward_engine   = reward_engine
         self.learning_engine = learning_engine
 
-    def process_and_update_profile(self, profile: dict, event: UserEvent) -> dict:
+    def process_and_update_profile(self, profile: dict, event) -> dict:
         """
-        Processes an event and returns the updated profile without saving it.
-        This makes the core logic stateless and reusable.
+        Process event → calculate reward → update profile.
+        Returns updated profile (caller handles persistence).
+
+        Stateless: same input → same output (testable).
         """
-        reward = self.reward_engine.calculate(event.event_type, event.value)
-        updated_profile = self.learning_engine.update_interest(
-            profile,
-            event.tags,
-            reward
+        try:
+            reward = self.reward_engine.calculate(
+                event.event_type,
+                event.value,
+            )
+            log.debug(
+                f"[Trainer] user={event.user_id} "
+                f"event={event.event_type} "
+                f"reward={reward:+d}"
+            )
+        except Exception as e:
+            log.warning(f"[Trainer] Reward calc failed: {e} → reward=0")
+            reward = 0
+
+        updated = self.learning_engine.update_interest(
+            profile=profile,
+            tags=event.tags,
+            reward=reward,
         )
-        return updated_profile
+        return updated
+
+
+# ⚠️ No instance here — prevents circular imports.
+# Create in services.py or tasks.py:
+#   trainer = Trainer(reward_engine=RewardEngine(), learning_engine=OnlineLearning())
