@@ -1,6 +1,18 @@
 model_routing:
-  code: "claude-3.5-sonnet"
-  reasoning: "gpt-4o"
-  creative: "gpt-4o"
-  fast: "llama-3.1-8b"
-  default: "claude-3.5-sonnet"
+  # ── HuggingFace (free, no extra key needed) ───────────────────────
+  default:      "HF_AGENT"        # ✅ uses AGENT_URL + HF_TOKEN
+  llm_agent:    "HF_AGENT"
+  trend:        "HF_AGENT"
+  discovery:    "HF_AGENT"
+  rag:          "HF_AGENT"
+  summarize:    "HF_AGENT"
+
+  # ── Anthropic (requires ANTHROPIC_API_KEY) ────────────────────────
+  reasoning:    "claude-sonnet-4-5"
+  code:         "claude-sonnet-4-5"
+
+  # ── OpenAI (requires OPENAI_API_KEY) ─────────────────────────────
+  creative:     "gpt-4o"
+
+  # ── Fast/cheap (local or HF) ──────────────────────────────────────
+  fast:         "HF_AGENT"
