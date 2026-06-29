@@ -1,20 +1,33 @@
-from pydantic import BaseModel
+"""
+backend/learning/events.py
+Event types + UserEvent schema.
+"""
 from enum import Enum
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
+
 
 class EventType(str, Enum):
-    VIEW = "view"
-    CLICK = "click"
-    WATCH = "watch" # Can have a value for watch time percentage
-    LIKE = "like"
-    SAVE = "save"
-    SHARE = "share"
-    FOLLOW = "follow"
-    SKIP = "skip"
+    VIEW       = "view"
+    CLICK      = "click"
+    WATCH      = "watch_time"   # ✅ Fix: "watch_time" matches FeedbackEvent + reward.py
+    LIKE       = "like"
+    SAVE       = "save"
+    SHARE      = "share"
+    FOLLOW     = "follow"
+    SKIP       = "skip"
+    DISLIKE    = "dislike"      # ✅ Added: matches reward.py
+    IMPRESSION = "impression"   # ✅ Added: matches reward.py
+
 
 class UserEvent(BaseModel):
-    user_id: str
-    item_id: str
+    user_id:    str
+    item_id:    str
     event_type: EventType
-    tags: List[str] # Tags of the item involved in the event
-    value: float = 0.0 # Optional value, e.g., watch_time_ratio
+    tags:       List[str]        = []
+    value:      float            = 0.0   # e.g. watch_time ratio 0.0→1.0
+
+    # ✅ Added: item metadata for PersonalizationEngine signal extraction
+    platform:   Optional[str]   = None
+    channel:    Optional[str]   = None
+    category:   Optional[str]   = None
