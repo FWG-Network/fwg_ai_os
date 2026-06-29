@@ -1,18 +1,73 @@
+"""
+backend/aios/agent.py
+Agent base class + Real LLM Agent implementation.
+"""
 from abc import ABC, abstractmethod
+from typing import Optional
+from backend.core.logger import log
 
-# This defines the "contract" for what an agent must be able to do.
+
+# ── Abstract Base ─────────────────────────────────────────────────────
 class Agent(ABC):
+    """Contract: every agent must implement async run()."""
+
     @abstractmethod
-    def run(self, task_description: str) -> str:
+    async def run(
+        self,
+        task_description: str,
+        user_id:          str = "system",
+    ) -> str:
         pass
 
-# This is a MOCK agent that simulates calling our LLM Orchestrator from Part 3.
-# It acts as a bridge between the OS and the LLM brain.
+
+# ── Real LLM Agent ────────────────────────────────────────────────────
+class LLMAgent(Agent):
+    """
+    Real agent — routes to LLMOrchestrator.
+    ✅ async run()
+    ✅ real LLM call (not mock)
+    ✅ fallback to mock if orchestrator unavailable
+    """
+
+    async def run(
+        self,
+        task_description: str,
+        user_id:          str = "system",
+        task_type:        str = "default",
+    ) -> str:
+        log.info(f"[LLMAgent] task='{task_description[:60]}' user={user_id}")
+        try:
+            from backend.lim.orchestrator import llm_orchestrator
+            result = await llm_orchestrator.generate_response(
+                query=task_description,
+                user_id=user_id,
+                task_type=task_type,
+            )
+            response = result.get("response", "")
+            log.info(f"[LLMAgent] ✅ Response ({len(response)} chars)")
+            return response
+
+        except Exception as e:
+            log.error(f"[LLMAgent] Orchestrator failed: {e} → mock fallback")
+            return f"[LLMAgent fallback] Task: {task_description}"
+
+
+# ── Mock Agent (dev/test only) ────────────────────────────────────────
 class MockLLMAgent(Agent):
-    def run(self, task_description: str) -> str:
-        print(f"\n🤖 MockLLMAgent: Executing task -> '{task_description}'")
-        # In a real system, this would make an API call to our LLMOrchestrator
-        # from llm_orchestrator.generate_response(query=task_description, ...)
-        result = f"Simulated LLM response for task: {task_description}"
-        print(f"🤖 MockLLMAgent: Task result -> '{result}'")
-        return result
+    """Deterministic mock for testing — no real LLM calls."""
+
+    async def run(
+        self,
+        task_description: str,
+        user_id:          str = "system",
+    ) -> str:
+        log.debug(f"[MockLLMAgent] task='{task_description[:60]}'")
+        return f"[Mock] Completed: {task_description}"
+
+
+# ── Factory ───────────────────────────────────────────────────────────
+def get_agent(mock: bool = False) -> Agent:
+    """Return real or mock agent based on environment."""
+    if mock:
+        return MockLLMAgent()
+    return LLMAgent()
