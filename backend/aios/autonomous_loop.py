@@ -1,75 +1,118 @@
+"""
+backend/aios/autonomous_loop.py
+Autonomous OS Loop — Plan → Execute (staged) → Reflect.
+"""
+import asyncio
 from sqlalchemy.orm import Session
-from .task_planner import task_planner_service
-from .executor import executor_service
-from .reflection import reflection_service
+
 from backend.models.db import Goal as GoalModel, Task as TaskModel
+from backend.core.logger import log
+
 
 class AutonomousLoop:
     """
-    The AutonomousLoop is a stateless orchestration service. It manages the lifecycle
-    of a goal by planning, dispatching tasks for intelligent execution, and reflecting
-    on the outcome. All state is persisted to a database.
+    Stateless orchestration of the AIOS goal lifecycle.
+    All state persisted to DB.
+
+    Stages (from task_planner):
+      Stage 1: Data collection (parallel)
+      Stage 2: Analysis
+      Stage 3: Synthesis/Report
     """
 
-    # ★★★ UPGRADE: Added 'user_id' to the method signature for personalization context ★★★
-    def run(self, goal_description: str, user_id: str, db: Session) -> GoalModel:
+    async def run(
+        self,
+        goal_description: str,
+        user_id:          str,
+        db:               Session,
+    ) -> GoalModel:
         """
-        The main operating cycle of the AI-OS. This process is persistent, context-aware,
-        and triggers real intelligent agents.
-        
-        Args:
-            goal_description: The high-level goal from the user.
-            user_id: The ID of the user who initiated the goal, for context.
-            db: The SQLAlchemy database session.
-            
-        Returns:
-            The final, completed Goal object from the database.
+        Main AIOS cycle:
+        1. Persist goal
+        2. Plan (staged task list)
+        3. Execute each stage (parallel within stage)
+        4. Reflect and finalize
         """
-        print(f"--- 🚀 AUTONOMOUS OS: STARTING GOAL FOR USER '{user_id}': {goal_description} 🚀 ---")
-        
-        # Goal persistence remains the same
-        db_goal = GoalModel(description=goal_description, status="running")
+        log.info(f"[AIOS] 🚀 Starting goal for user='{user_id}': '{goal_description}'")
+
+        # ── Persist Goal ──────────────────────────────────────────────
+        db_goal = GoalModel(
+            description=goal_description,
+            user_id=user_id,
+            status="running",
+        )
         db.add(db_goal)
         db.commit()
         db.refresh(db_goal)
+        log.info(f"[AIOS] Goal persisted id={db_goal.id}")
 
-        # Planning stage remains the same
-        print("\n[1. PLANNING STAGE]")
-        task_descriptions = task_planner_service.create_plan(goal_description)
-        db_tasks = [TaskModel(description=desc, goal_id=db_goal.id) for desc in task_descriptions]
-        db.add_all(db_tasks)
+        # ── Plan ─────────────────────────────────────────────────────
+        log.info(f"[AIOS] [1/3] PLANNING...")
+        from backend.aios.task_planner import task_planner_service
+
+        # ✅ Fix 1: pass goal_id (2nd arg)
+        # ✅ Fix 2: returns List[List[TaskModel]] — staged!
+        staged_plan: list = task_planner_service.create_plan(
+            goal_description,
+            db_goal.id,
+        )
+
+        # Persist all tasks to DB
+        all_tasks = []
+        for stage_idx, stage_tasks in enumerate(staged_plan):
+            for task in stage_tasks:
+                task.goal_id = db_goal.id
+                db.add(task)
+                all_tasks.append(task)
+
         db.commit()
-        print(f"Plan created and saved with {len(db_tasks)} tasks.")
+        log.info(
+            f"[AIOS] Plan: {len(staged_plan)} stages, "
+            f"{len(all_tasks)} tasks total"
+        )
 
-        # Execution stage is now context-aware
-        print("\n[2. EXECUTION STAGE]")
-        for i, task in enumerate(db_tasks):
-            print(f"\n--- Processing Task {i+1}/{len(db_tasks)} ---")
-            db.refresh(task)
-            
-            try:
-                # ★★★ UPGRADE: Pass the user_id to the executor service ★★★
-                # The executor will now dispatch this context to the real AI worker.
-                executor_service.execute_task(task, goal_owner_id=user_id)
-            except Exception as e:
-                print(f"CRITICAL ERROR: Task execution failed for '{task.description}'. Aborting goal.")
-                db_goal.status = "failed"
+        # ── Execute (stage by stage) ──────────────────────────────────
+        log.info(f"[AIOS] [2/3] EXECUTING...")
+        from backend.aios.executor import executor_service
+
+        try:
+            for stage_idx, stage_tasks in enumerate(staged_plan):
+                log.info(
+                    f"[AIOS] Stage {stage_idx + 1}/{len(staged_plan)}: "
+                    f"{len(stage_tasks)} tasks"
+                )
+                # ✅ Fix 3: async execute_task_group (parallel within stage)
+                await executor_service.execute_task_group(
+                    tasks=stage_tasks,
+                    db=db,
+                    user_id=user_id,    # ✅ pass user_id for personalization
+                )
                 db.commit()
-                raise e
-            
+                log.info(f"[AIOS] Stage {stage_idx + 1} complete ✅")
+
+        except Exception as e:
+            log.error(f"[AIOS] Execution failed: {e}")
+            db_goal.status = "failed"
             db.commit()
+            raise
 
-        print("\nExecution of all tasks complete.")
-
-        # Reflection stage remains the same
-        print("\n[3. REFLECTION STAGE]")
+        # ── Reflect ───────────────────────────────────────────────────
+        log.info(f"[AIOS] [3/3] REFLECTING...")
         db.refresh(db_goal)
-        reflection_outcome = reflection_service.evaluate(db_goal)
-        db_goal.status = reflection_outcome
+
+        try:
+            from backend.aios.reflection import reflection_service
+            outcome = reflection_service.evaluate(db_goal)
+        except Exception as e:
+            log.warning(f"[AIOS] Reflection failed: {e} → defaulting to completed")
+            outcome = "completed"
+
+        db_goal.status = outcome
         db.commit()
-        
-        print(f"\n--- ✅ AUTONOMOUS OS: GOAL COMPLETE. FINAL STATUS: {reflection_outcome} ✅ ---")
+
+        log.info(f"[AIOS] ✅ Goal complete. status={outcome}")
         return db_goal
 
-# ★★★ UPGRADE: Removed the service instance creation from this file. ★★★
-# It is now correctly created in backend/core/services.py
+
+# ── Global instance ───────────────────────────────────────────────────
+autonomous_loop_service = AutonomousLoop()
