@@ -1,3 +1,73 @@
+<div align="center">
+
+<img src="assets/fwg_banner.svg" alt="FWG AI OS" width="100%"/>
+
+<br/><br/>
+
+[![Try Agent](https://img.shields.io/badge/Try_Agent-HF_Space-FF6B9D?style=for-the-badge&logo=huggingface&logoColor=white)](https://huggingface.co/spaces/Sereyfwg/fwg-agent)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://github.com/sereyfwg/fwg_ai_os)
+[![License](https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-v6.0-7C3AED?style=for-the-badge)](https://github.com/sereyfwg/fwg_ai_os/releases)
+
+[![Autonomous OS](https://img.shields.io/badge/Autonomous_OS-Controller-7C3AED?style=for-the-badge)](https://github.com/sereyfwg/fwg_ai_os)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-DC143C?style=for-the-badge)](https://qdrant.tech)
+[![LLM Router](https://img.shields.io/badge/LLM_Router-Agentic-6D28D9?style=for-the-badge)](https://github.com/sereyfwg/fwg_ai_os)
+
+[![HuggingFace](https://img.shields.io/badge/HuggingFace-Spaces-FFB000?style=for-the-badge&logo=huggingface&logoColor=white)](https://huggingface.co/spaces/Sereyfwg/fwg-agent)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://neon.tech)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-FF6B00?style=for-the-badge)](https://claude.ai/code)
+[![Redis](https://img.shields.io/badge/Redis-Queue-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
+[![Celery](https://img.shields.io/badge/Celery-Workers-37814A?style=for-the-badge)](https://docs.celeryq.dev)
+
+</div>
+
+---
+
+# FWG AI OS — Autonomous Intelligence Operating System
+
+> FastAPI · Qdrant VectorDB · PostgreSQL Neon · Redis · Celery · HuggingFace Spaces · Claude
+
+## ✨ Features
+
+- 🤖 **Autonomous OS Controller** — 8-endpoint agent orchestration API (`backend/api/endpoints/os.py`)
+- 🧠 **LLM Router & AIOS Agent** — Intelligent model routing and dispatch
+- 🔍 **Qdrant Vector DB** — Semantic search and long-term memory
+- ⚡ **Celery + Redis** — Async task queue and background workers
+- 🗄️ **PostgreSQL (Neon)** — Scalable cloud-native persistence
+- 🌐 **HuggingFace Spaces** — One-click cloud deployment
+- 🔌 **Claude Code Plugin** — AI-assisted development
+
+## 🚀 Quick Start
+
+```bash
+# Clone
+git clone https://github.com/sereyfwg/fwg_ai_os.git
+cd fwg_ai_os
+
+# Install
+pip install -r requirements.txt
+
+# Run (local)
+uvicorn backend.main:app --reload
+```
+
+## 🏗️ Architecture
+
+```
+fwg_ai_os/
+├── backend/
+│   ├── api/endpoints/
+│   │   ├── os.py          # Autonomous OS controller (8 endpoints)
+│   │   └── ...
+│   ├── personalization_engine.py
+│   └── main.py
+└── Dockerfile
+```
+
+## ☁️ Cloud Deployment
+
+Deployed on **HuggingFace Spaces** → [sereyfwg/fwg-agent](https://huggingface.co/spaces/Sereyfwg/fwg-agent)
+
 # 🤖 FWG Autonomous Intelligence Operating System (AI-OS)
 
 > **Production-grade autonomous AI ecosystem** — self-planning, self-executing, and self-learning.  
