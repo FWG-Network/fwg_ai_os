@@ -1,82 +1,137 @@
-# ===================================================================
-# CENTRAL SERVICE INITIALIZATION HUB
-# This file is the single source of truth for all service instances.
-# It prevents circular dependencies and ensures a clean startup order.
-# ===================================================================
-import redis
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
-from .config import settings
+"""
+backend/core/services.py
+Central Service Hub — infrastructure clients + service imports.
 
-# --- Infrastructure Clients ---
-print("Initializing core infrastructure clients...")
+Design:
+  - Infrastructure clients (Redis, Qdrant) initialized here ONCE
+  - Service singletons IMPORTED from their own modules (not re-created)
+  - Lazy Qdrant collection setup
+"""
+from backend.core.config import settings
+from backend.core.logger import log
+
+
+# ── Infrastructure Clients ────────────────────────────────────────────
+log.info("[Services] Initializing core infrastructure clients...")
+
+# Redis
 try:
-    redis_client = redis.Redis(host=settings.REDIS_HOST, port=6379, db=0, decode_responses=True)
+    import redis as redis_lib
+    # ✅ Fix: use REDIS_URL (consistent, not hardcoded port)
+    redis_client = redis_lib.from_url(
+        settings.REDIS_URL,
+        db=0,
+        decode_responses=True,
+        socket_timeout=3,
+    )
     redis_client.ping()
-    print("✅ Redis client initialized.")
+    log.info("✅ Redis client initialized")
 except Exception as e:
-    print(f"❌ CRITICAL: Failed to connect to Redis. {e}")
+    log.error(f"❌ Redis unavailable: {e}")
     redis_client = None
 
+# Qdrant
 try:
-    qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=6333)
+    from qdrant_client import QdrantClient
+    qdrant_client = QdrantClient(
+        host=settings.QDRANT_HOST,
+        port=settings.QDRANT_PORT,
+        timeout=5,
+    )
     qdrant_client.get_collections()
-    print("✅ Qdrant client initialized.")
+    log.info("✅ Qdrant client initialized")
 except Exception as e:
-    print(f"❌ CRITICAL: Failed to connect to Qdrant. {e}")
+    log.error(f"❌ Qdrant unavailable: {e}")
     qdrant_client = None
 
-# --- Application Service Classes ---
-print("Importing service classes...")
-# ★★★ FIX: Import only the classes that are truly independent ★★★
-from backend.learning.reward import RewardEngine
-from backend.learning.online_learning import OnlineLearning
-# ... other independent services ...
-from backend.learning.trainer import Trainer
-from backend.aios.task_planner import TaskPlanner
-from backend.aios.executor import Executor
-from backend.aios.reflection import ReflectionEngine
-from backend.aios.autonomous_loop import AutonomousLoop
-from backend.services.discovery_engine import DiscoveryEngine
-from backend.services.ranking_engine import RankingEngine
-from backend.services.personalization_engine import PersonalizationEngine
-from backend.services.multimodal_engine import MultimodalEngine
-from backend.lim.orchestrator import LLMOrchestrator
 
-# --- Singleton Service Instances ---
-print("Instantiating INDEPENDENT singleton service instances...")
-reward_service = RewardEngine()
-online_learning_service = OnlineLearning()
-# ★★★ FIX: All services are now created here ★★★
-trainer_service = Trainer()
-task_planner_service = TaskPlanner()
-executor_service = Executor()
-reflection_service = ReflectionEngine()
-autonomous_loop_service = AutonomousLoop()
-discovery_engine_service = DiscoveryEngine()
-ranking_engine_service = RankingEngine()
-personalization_engine_service = PersonalizationEngine()
-multimodal_engine_service = MultimodalEngine()
-llm_orchestrator_service = LLMOrchestrator()
-print("✅ All application services instantiated.")
+# ── Service Singletons ────────────────────────────────────────────────
+# ✅ Fix: IMPORT existing singletons — do NOT create new instances!
+# Each module already creates its own singleton at bottom of file.
+log.info("[Services] Importing service singletons...")
+
+try:
+    from backend.aios.task_planner     import task_planner_service
+    from backend.aios.executor         import executor_service
+    from backend.aios.reflection       import reflection_service
+    from backend.aios.autonomous_loop  import autonomous_loop_service
+    log.info("✅ AIOS services imported")
+except Exception as e:
+    log.error(f"❌ AIOS services failed: {e}")
+    task_planner_service     = None
+    executor_service         = None
+    reflection_service       = None
+    autonomous_loop_service  = None
+
+try:
+    from backend.services.discovery_engine      import discovery_engine_service
+    from backend.services.ranking_engine        import ranking_engine_service
+    from backend.services.personalization_engine import personalization_engine_service
+    from backend.services.worker_client         import worker_client
+    log.info("✅ Core services imported")
+except Exception as e:
+    log.error(f"❌ Core services failed: {e}")
+    discovery_engine_service     = None
+    ranking_engine_service       = None
+    personalization_engine_service = None
+    worker_client                = None
+
+try:
+    from backend.lim.orchestrator   import llm_orchestrator as llm_orchestrator_service
+    from backend.lim.vector_memory  import vector_memory_service
+    from backend.lim.rag_pipeline   import rag_pipeline
+    log.info("✅ LIM services imported")
+except Exception as e:
+    log.error(f"❌ LIM services failed: {e}")
+    llm_orchestrator_service = None
+    vector_memory_service    = None
+    rag_pipeline             = None
+
+try:
+    from backend.services.multimodal_engine import multimodal_engine_service
+    log.info("✅ Multimodal service imported")
+except Exception as e:
+    log.warning(f"⚠️ Multimodal service unavailable: {e}")
+    multimodal_engine_service = None
+
+try:
+    from backend.learning.reward        import reward_service
+    from backend.learning.online_learning import online_learning_service
+    from backend.learning.trainer       import trainer_service
+    log.info("✅ Learning services imported")
+except Exception as e:
+    log.warning(f"⚠️ Learning services unavailable: {e}")
+    reward_service          = None
+    online_learning_service = None
+    trainer_service         = None
+
+log.info("[Services] ✅ All services ready")
 
 
-# --- Idempotent Setup Logic ---
-def setup_vector_database():
-    if not qdrant_client: return
-    collection_name = "aios_memory"
+# ── Qdrant Collection Setup (idempotent) ──────────────────────────────
+def setup_vector_database() -> None:
+    """Create default Qdrant collection if not exists."""
+    if not qdrant_client:
+        log.warning("[Services] Qdrant unavailable — skipping collection setup")
+        return
+
+    from qdrant_client.models import Distance, VectorParams
+    collection = "aios_memory"
+
     try:
-        collections = qdrant_client.get_collections().collections
-        if collection_name not in [c.name for c in collections]:
+        existing = [c.name for c in qdrant_client.get_collections().collections]
+        if collection not in existing:
             qdrant_client.create_collection(
-                collection_name=collection_name,
+                collection_name=collection,
                 vectors_config=VectorParams(size=384, distance=Distance.COSINE),
             )
-            print(f"✅ Qdrant collection '{collection_name}' created.")
+            log.info(f"✅ Qdrant collection '{collection}' created")
         else:
-            print(f"✅ Qdrant collection '{collection_name}' already exists.")
+            log.info(f"✅ Qdrant collection '{collection}' exists")
     except Exception as e:
-        print(f"❌ ERROR during Qdrant setup: {e}")
+        log.error(f"❌ Qdrant setup error: {e}")
 
-# Run setup on import
-setup_vector_database()
+
+# ── Run setup (called from main.py lifespan, not on import) ──────────
+# ✅ Fix: Don't auto-run on import — call from main.py startup
+# setup_vector_database()  ← moved to backend/main.py lifespan
