@@ -4,12 +4,12 @@ model_routing:
   llm_agent:    "HF_AGENT"
   trend:        "HF_AGENT"
   discovery:    "HF_AGENT"
-  rag:          "HF_AGENT"
+  rag:          "HF_AGENT" # long context free
   summarize:    "HF_AGENT"
 
   # ── Anthropic (requires ANTHROPIC_API_KEY) ────────────────────────
-  reasoning:    "claude-sonnet-4-5"
-  code:         "claude-sonnet-4-5"
+  reasoning: "claude-haiku-4-5"   # cheap + fast
+  code:      "claude-sonnet-4-6"  # high quality
 
   # ── OpenAI (requires OPENAI_API_KEY) ─────────────────────────────
   creative:     "gpt-4o"
