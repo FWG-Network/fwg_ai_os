@@ -1,25 +1,59 @@
-# backend/aios/tasks.py
+"""
+backend/aios/tasks.py
+Celery tasks for AIOS — wraps async orchestrator in sync context.
+"""
+import asyncio
+from backend.core.logger import log
 
-from backend.worker import celery_app
-# Import the central service hub, which will be available in the Celery worker's context
-from backend.core.services import llm_orchestrator_service
+try:
+    from backend.worker import celery_app
+except Exception as e:
+    log.warning(f"[AIOSTasks] Celery unavailable: {e}")
+    celery_app = None
 
-@celery_app.task(name="aios.execute_agent_task")
+
+def _run_async(coro):
+    """Run async coroutine in Celery sync context."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Already in async context — create new loop
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, coro)
+                return future.result()
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        return asyncio.run(coro)
+
+
 def execute_agent_task(task_description: str, user_id: str = "system") -> str:
     """
-    This is the REAL agent execution task.
-    It runs on a Celery worker and calls the LLM Orchestrator to get an intelligent response.
+    AIOS Celery task — runs LLM Orchestrator async in sync context.
+    ✅ Fix: asyncio.run() wrapper for async generate_response()
     """
-    print(f"🤖 AI-OS Worker: Received task -> '{task_description}'")
-    
-    # Use the orchestrator to generate a response. This involves RAG, planning, etc.
-    response_data = llm_orchestrator_service.generate_response(
-        query=task_description,
-        user_id=user_id
-    )
-    
-    # Extract the string response to return to the loop
-    result = response_data.get("response", "No response generated.")
-    
-    print(f"🤖 AI-OS Worker: Task complete. Result -> '{result[:100]}...'")
-    return result
+    log.info(f"[AIOSTasks] task='{task_description[:60]}' user={user_id}")
+    try:
+        from backend.lim.orchestrator import llm_orchestrator
+
+        # ✅ Fix: wrap async in sync
+        response_data = _run_async(
+            llm_orchestrator.generate_response(
+                query=task_description,
+                user_id=user_id,
+            )
+        )
+        result = response_data.get("response", "No response generated.")
+        log.info(f"[AIOSTasks] ✅ Done ({len(result)} chars)")
+        return result
+
+    except Exception as e:
+        log.error(f"[AIOSTasks] Failed: {e}")
+        return f"Task failed: {e}"
+
+
+# Register with Celery if available
+if celery_app:
+    execute_agent_task = celery_app.task(
+        name="aios.execute_agent_task"
+    )(execute_agent_task)
