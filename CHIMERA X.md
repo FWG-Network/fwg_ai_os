@@ -277,3 +277,49 @@ Workspace
 ├── Studio
 ├── Knowledge Graph
 └── Settings
+
+documents 
+docs/
+│
+├── 00-VISION/
+│   ├── README.md
+│   ├── PRODUCT_VISION.md
+│   ├── COMPANY_PHILOSOPHY.md
+│   └── LONG_TERM_ROADMAP.md
+│
+├── 01-ARCHITECTURE/
+│   ├── SYSTEM_ARCHITECTURE.md
+│   ├── AI_COUNCIL.md
+│   ├── AI_AGENT_NETWORK.md
+│   ├── MEMORY_SYSTEM.md
+│   ├── EVENT_BUS.md
+│   ├── SERVICE_MAP.md
+│   └── DATABASE.md
+│
+├── 02-SPRINTS/
+│   ├── Sprint-01.md
+│   ├── Sprint-02.md
+│   ├── Sprint-03.md
+│   ...
+│   ├── Sprint-40.md
+│   └── Sprint-50.md
+│
+├── 03-UI/
+│   ├── Dashboard.md
+│   ├── ChimeraEngine.md
+│   ├── PredatorMode.md
+│   ├── GenesisMode.md
+│   ├── AICouncil.md
+│   └── Analytics.md
+│
+├── 04-BACKEND/
+│
+├── 05-AI/
+│
+├── 06-DEPLOYMENT/
+│
+├── 07-SECURITY/
+│
+├── 08-TESTING/
+│
+└── 09-RELEASES/
