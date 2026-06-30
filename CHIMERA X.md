@@ -263,3 +263,17 @@ AI Finance
 AI Research
 AI Robotics
 គ្រាន់តែដាក់ជា Module ថ្មីប៉ុណ្ណោះ មិនចាំបាច់ Rewrite ប្រព័ន្ធទាំងមូលទេ។
+
+Workspace System
+Workspace
+
+├── Research
+├── Discovery
+├── AI Council
+├── Intelligence
+├── Analytics
+├── Simulation
+├── Workflow
+├── Studio
+├── Knowledge Graph
+└── Settings
