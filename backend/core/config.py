@@ -55,6 +55,9 @@ class Settings:
     # 1. Cloudflare Workers AI
     CLOUDFLARE_API_KEY:    str = os.getenv("CLOUDFLARE_API_KEY", "")
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+    CF_MODEL_REASONING: str = os.getenv("CF_MODEL_REASONING", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b")
+    CF_MODEL_STORY:     str = os.getenv("CF_MODEL_STORY",     "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
+    CF_MODEL_FAST:      str = os.getenv("CF_MODEL_FAST",      "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
     
     # 2. OpenRouter Multi-Model (All-In-One API)
     OPENROUTER_API_KEY:    str = os.getenv("OPENROUTER_API_KEY", "")
