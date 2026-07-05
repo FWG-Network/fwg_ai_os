@@ -1,8 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv(override=True)          # ✅ module level, not inside class
-
+load_dotenv(override=True)         # ✅ module level, not inside class
 
 class Settings:
 
@@ -51,6 +50,25 @@ class Settings:
     HF_TOKEN:             str = os.getenv("HF_TOKEN",          "")
     AGENT_URL:            str = os.getenv("AGENT_URL",         "https://sereyfwg-agent.hf.space")
     CLOUD_FUNCTION_URL:   str = os.getenv("CLOUD_FUNCTION_URL","")  # ✅ Dev: TikTok
+
+    # ─── AI & LLM Models (NEW INTEGRATION) ────────────────────────
+    # 1. Cloudflare Workers AI
+    CLOUDFLARE_API_KEY:    str = os.getenv("CLOUDFLARE_API_KEY", "")
+    CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+    
+    # 2. OpenRouter Multi-Model (All-In-One API)
+    OPENROUTER_API_KEY:    str = os.getenv("OPENROUTER_API_KEY", "")
+    MODEL_REASONING:       str = os.getenv("MODEL_REASONING", "deepseek/deepseek-r1:free")
+    MODEL_WRITER:          str = os.getenv("MODEL_WRITER", "meta-llama/llama-3.3-70b-instruct:free")
+    MODEL_FAST:            str = os.getenv("MODEL_FAST", "google/gemini-2.5-flash:free")
+    OPENROUTER_MODEL:      str = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-r1:free")
+    
+    # 3. Story Learning Engine Tiers
+    STORY_MODEL_PREFERENCE: str = os.getenv("STORY_MODEL_PREFERENCE", "meta-llama/llama-3.3-70b-instruct:free")
+    PROMPT_HUMANIZER_TIER:  str = os.getenv("PROMPT_HUMANIZER_TIER", "deepseek/deepseek-r1:free")
+    
+    # 4. GitHub Actions CI/CD (GitHub Models API)
+    GH_MODELS_TOKEN:       str = os.getenv("GH_MODELS_TOKEN", "")
 
 
 settings = Settings()
