@@ -19,7 +19,11 @@ transformers
 sentence-transformers
 openai-clip
 openai-whisper
-easyocr
+
+# --- OCR (AI_STACK.md frozen decision: PaddleOCR is primary) ---
+paddlepaddle
+paddleocr
+easyocr          # kept only as documented fallback, NOT primary — see MODEL_DECISIONS.md #3
 
 # --- LLM Orchestration & Configuration ---
 openai
