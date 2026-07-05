@@ -1,18 +1,28 @@
+# config/models.yml
+# ── HONESTY CONSTRAINT: every task_type maps to "auto" ─────────────────
+# This file NEVER claims a specific provider/model. The Python router
+# (backend/lim/llm_router.py) decides at call-time which provider is
+# actually reachable, based on which API keys are configured — and logs
+# exactly which one answered. See MODEL_DECISIONS.md entry #6.
+
 model_routing:
-  # ── HuggingFace (free, no extra key needed) ───────────────────────
-  default:      "HF_AGENT"        # ✅ uses AGENT_URL + HF_TOKEN
-  llm_agent:    "HF_AGENT"
-  trend:        "HF_AGENT"
-  discovery:    "HF_AGENT"
-  rag:          "HF_AGENT" # long context free
-  summarize:    "HF_AGENT"
+  # ── Legacy / unchanged chain: HF Agent -> HF Inference -> Mock ──────
+  default:      "auto"
+  llm_agent:    "auto"
+  trend:        "auto"
+  discovery:    "auto"
+  rag:          "auto"
+  summarize:    "auto"
 
-  # ── Anthropic (requires ANTHROPIC_API_KEY) ────────────────────────
-  reasoning: "claude-haiku-4-5"   # cheap + fast
-  code:      "claude-sonnet-4-6"  # high quality
+  # ── New premium-reasoning chain: GitHub Models -> Cloudflare -> OpenRouter -> Mock
+  reasoning:    "auto"
+  story:        "auto"
 
-  # ── OpenAI (requires OPENAI_API_KEY) ─────────────────────────────
-  creative:     "gpt-4o"
+  # ── Writer chain: GitHub Models -> OpenRouter -> Mock (no Cloudflare) ──
+  writer:       "auto"
+  code:         "auto"     # kept in writer-tier: needs strong logic, not bulk/background
+  creative:     "auto"     # ASSUMPTION: folded into writer-tier — confirm if this should
+                            # instead follow the "story" chain (Cloudflare included)
 
-  # ── Fast/cheap (local or HF) ──────────────────────────────────────
-  fast:         "HF_AGENT"
+  # ── Fast/cheap/background chain: Cloudflare -> OpenRouter -> Mock ───
+  fast:         "auto"
