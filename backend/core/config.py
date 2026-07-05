@@ -69,6 +69,8 @@ class Settings:
     
     # 4. GitHub Actions CI/CD (GitHub Models API)
     GH_MODELS_TOKEN:       str = os.getenv("GH_MODELS_TOKEN", "")
-
+    GH_MODEL_REASONING: str = os.getenv("GH_MODEL_REASONING", "gpt-4o-mini")  # ឬ o1-mini ទៅតាមតារាង mapping
+    GH_MODEL_STORY:     str = os.getenv("GH_MODEL_STORY",     "gpt-4o")
+    GH_MODEL_WRITER:    str = os.getenv("GH_MODEL_WRITER",    "gpt-4o")
 
 settings = Settings()
