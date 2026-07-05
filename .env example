@@ -1,0 +1,62 @@
+# =====================================================================
+# 🦅 FWG AI OS - LIVE ENVIRONMENT CONFIGURATION TEMPLATE (.env)
+# =====================================================================
+# ការណែនាំ៖ សូមបំពេញតម្លៃ API Keys នៅខាងស្តាំសញ្ញា "=" ទៅតាមគ្រាប់ Key ផ្ទាល់ខ្លួន។
+# ទុកឱ្យនៅ "ទទេ" ប្រសិនបើមិនទាន់បើកប្រើប្រាស់មុខងារផ្នែកនោះ។
+# =====================================================================
+
+# ─────────────────────────────────────────────────────────────────────
+# 🌐 ផ្នែកទី ១៖ CLOUDFLARE WORKERS AI CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────
+# ប្រើសម្រាប់ជាប្រព័ន្ធ AI បម្រុង (Fallback System) រត់លើ Infrastructure ផ្ទាល់ខ្លួន
+CLOUDFLARE_API_KEY=your_cloudflare_api_token_here
+CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id_here
+
+# ─────────────────────────────────────────────────────────────────────
+# 🛠️ ផ្នែកទី ២៖ OPENROUTER MULTI-MODEL CONFIGURATIONS (ALL-IN-ONE)
+# ─────────────────────────────────────────────────────────────────────
+# គ្រាប់ Key ម្ចាស់ក្សត្រី អាចហៅប្រើបានគ្រប់ម៉ូដែលទាំងអស់លើលោកដោយមិនបាច់ដោតកាតច្រើន
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+
+# [លំដាប់ទី ១] ម៉ូដែលស្ដេចគិត Logic ខ្លាំង (ណែនាំ៖ deepseek/deepseek-r1:free)
+MODEL_REASONING=deepseek/deepseek-r1:free
+
+# [លំដាប់ទី ២] ម៉ូដែលនិពន្ធ Script វែងៗ និងភាសាបរទេស (ណែនាំ៖ meta-llama/llama-3.3-70b-instruct:free)
+MODEL_WRITER=meta-llama/llama-3.3-70b-instruct:free
+
+# [លំដាប់ទី ៣] ម៉ូដែលល្បឿនលឿន និងសន្សំសំចៃ (ណែនាំ៖ google/gemini-2.5-flash:free)
+MODEL_FAST=google/gemini-2.5-flash:free
+
+# ម៉ូដែលចម្បងសម្រាប់ប្រព័ន្ធ Router ហៅប្រើជាលក្ខណៈ Default (បើកូដចាស់ទាមទារ)
+OPENROUTER_MODEL=deepseek/deepseek-r1:free
+
+# ─────────────────────────────────────────────────────────────────────
+# ⚙️ ផ្នែកទី ៣៖ AGENT CONFIGURATION TIERS (CORE PREFERENCES)
+# ─────────────────────────────────────────────────────────────────────
+# កំណត់មុខព្រួញជំនាញឱ្យភ្នាក់ងារ AI នីមួយៗរត់ទៅទាញម៉ូដែល Free មកប្រើចំគោលដៅ
+STORY_MODEL_PREFERENCE=meta-llama/llama-3.3-70b-instruct:free
+PROMPT_HUMANIZER_TIER=deepseek/deepseek-r1:free
+
+# ─────────────────────────────────────────────────────────────────────
+# 🗄️ ផ្នែកទី ៤៖ ORIGINAL PROJECT CORE INFRASTRUCTURE & DATABASES
+# ─────────────────────────────────────────────────────────────────────
+# ថូខឹនសម្រាប់ទាញយកទិន្នន័យ Scraper ពីក្រៅ
+APIFY_API_TOKEN=your_apify_api_token_here
+
+# ប្រព័ន្ធផ្ទុកទិន្នន័យ PostgreSQL Database (សម្អាតបន្ទាត់ឌុបចេញរួចរាល់)
+POSTGRES_USER=postgres_username
+POSTGRES_PASSWORD=postgres_password
+POSTGRES_DB=fwg_ai_os_db
+DATABASE_URL=postgresql://postgres_username:postgres_password@localhost:5432/fwg_ai_os_db
+
+# ថូខឹនសម្រាប់ទាញយក AI Weights ពី Hugging Face (បើមាន)
+HF_TOKEN=your_huggingface_token_here
+
+# ផ្លូវ Link ទៅកាន់ប្រព័ន្ធគ្រប់គ្រង Agent Core
+AGENT_URL=http://localhost:8000
+
+# គ្រាប់ Key សម្រាប់ស្កេនស្វែងរកវីដេអូ Trend ខ្លាំងៗនៅលើ YouTube (សម្អាតបន្ទាត់ឌុបចេញរួចរាល់)
+YOUTUBE_API_KEY=your_youtube_data_api_v3_key_here
+
+# ផ្លូវកំណត់បរិស្ថានរត់កូដរបស់ភាសា Python (ទុកដូចដើម)
+PYTHONPATH=
