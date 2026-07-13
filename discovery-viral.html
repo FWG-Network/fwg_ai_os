@@ -146,199 +146,103 @@
 
     <script type="text/babel">
         // --- src/providers/llmRouter.js ---
-        // This file abstracts communication with various LLM providers.
-        // It handles provider selection, model routing, error handling, and response normalization.
-
-        // Placeholder for API Keys🔥 - in a real app, these would be managed securely (e.g., environment variables, backend)
-        const API_KEYS = {
-            openrouter: "YOUR_OPENROUTER_API_KEY",
-            googleAIStudio: "YOUR_GOOGLE_AI_STUDIO_API_KEY",
-            huggingface: "YOUR_HUGGINGFACE_API_KEY",
-            cloudflareAI: "YOUR_CLOUDFLARE_WORKERS_AI_TOKEN" // For Cloudflare Workers AI
-            // Add other provider API keys here
-        };
+        // This file abstracts communication with various LLM providers, now via a Cloudflare Worker proxy.
 
         const DEFAULT_TIMEOUT = 15000; // Default timeout for LLM calls
+        const WORKER_BASE_URL = "https://viral-discovery-proxy.fasterwgseverkh.workers.dev"; // Base URL of the Cloudflare Worker
 
-        // LLM Provider configurations 🎯
+        // LLM Provider configurations for UI display. Actual routing is done by the Worker.
         const providersConfig = {
             openrouter: {
                 name: "OpenRouter",
-                endpoint: "https://openrouter.ai/api/v1/chat/completions",
                 models: [
                     { id: "openai/gpt-4o", name: "GPT-4o (OpenRouter)" },
                     { id: "google/gemini-pro", name: "Gemini Pro (OpenRouter)" },
                     { id: "anthropic/claude-3-haiku", name: "Claude 3 Haiku (OpenRouter)" }
-                ],
-                headers: (apiKey) => ({
-                    "Authorization": `Bearer ${apiKey}`,
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://example.com", // Replace with your actual app URL
-                    "X-Title": "AI Content Research OS"
-                }),
-                // Adapter for OpenRouter specific request/response
-                adapter: async (prompt, options, apiKey) => {
-                    const response = await fetch(providersConfig.openrouter.endpoint, {
-                        method: "POST",
-                        headers: providersConfig.openrouter.headers(apiKey),
-                        body: JSON.stringify({
-                            model: options.model,
-                            messages: [{ role: "user", content: prompt }],
-                            response_format: options.outputSchema ? { type: "json_object" } : undefined,
-                            temperature: 0.7,
-                            max_tokens: 1000
-                        }),
-                        signal: options.signal
-                    });
-                    return response.json();
-                },
-                normalize: (rawResponse, options) => {
-                    if (rawResponse.choices && rawResponse.choices.length > 0) {
-                        const content = rawResponse.choices[0].message.content;
-                        try {
-                            const data = options.outputSchema ? JSON.parse(content) : content;
-                            return { success: true, data, provider: "openrouter", model: options.model, metadata: { latency: options.latency } };
-                        } catch (e) {
-                            return { success: false, error: "Failed to parse JSON response from OpenRouter.", provider: "openrouter", model: options.model, metadata: { latency: options.latency } };
-                        }
-                    }
-                    return { success: false, error: rawResponse.error?.message || "OpenRouter: Unknown error", provider: "openrouter", model: options.model, metadata: { latency: options.latency } };
-                }
+                ]
             },
-            googleAIStudio: {
+            google: { // Renamed from googleAIStudio to match worker's expected provider name
                 name: "Google AI Studio",
-                endpoint: "https://generativelanguage.googleapis.com/v1beta/models/",
                 models: [
                     { id: "gemini-pro", name: "Gemini Pro" }
-                ],
-                headers: (apiKey) => ({
-                    "Content-Type": "application/json"
-                }),
-                adapter: async (prompt, options, apiKey) => {
-                    const endpoint = `${providersConfig.googleAIStudio.endpoint}${options.model}:generateContent?key=${apiKey}`;
-                    const response = await fetch(endpoint, {
-                        method: "POST",
-                        headers: providersConfig.googleAIStudio.headers(apiKey),
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }],
-                            generationConfig: options.outputSchema ? { response_mime_type: "application/json" } : undefined,
-                            safetySettings: [ // Basic safety settings for demonstration
-                              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
-                            ],
-                        }),
-                        signal: options.signal
-                    });
-                    return response.json();
-                },
-                normalize: (rawResponse, options) => {
-                    if (rawResponse.candidates && rawResponse.candidates.length > 0) {
-                        const content = rawResponse.candidates[0].content.parts[0].text;
-                        try {
-                            const data = options.outputSchema ? JSON.parse(content) : content;
-                            return { success: true, data, provider: "googleAIStudio", model: options.model, metadata: { latency: options.latency } };
-                        } catch (e) {
-                            return { success: false, error: "Failed to parse JSON response from Google AI Studio.", provider: "googleAIStudio", model: options.model, metadata: { latency: options.latency } };
-                        }
-                    }
-                    return { success: false, error: rawResponse.promptFeedback?.blockReason || rawResponse.error?.message || "Google AI Studio: Unknown error or blocked content", provider: "googleAIStudio", model: options.model, metadata: { latency: options.latency } };
-                }
+                ]
             },
-            // Add other LLM providers here (e.g., HuggingFace Inference, Cloudflare Workers AI)
-            // Example structure for a generic API (e.g., some HuggingFace endpoints or custom local LLM)
-            genericAPI: {
-                name: "Generic API",
-                endpoint: "http://localhost:11434/api/generate", // Example Ollama endpoint
-                models: [{ id: "llama2", name: "Llama 2 (Ollama)" }],
-                headers: () => ({
-                    "Content-Type": "application/json"
-                }),
-                adapter: async (prompt, options, apiKey) => {
-                    // This adapter assumes a simple API that takes a prompt and returns a JSON response
-                    const response = await fetch(options.endpoint || providersConfig.genericAPI.endpoint, {
-                        method: "POST",
-                        headers: providersConfig.genericAPI.headers(),
-                        body: JSON.stringify({
-                            model: options.model,
-                            prompt: prompt,
-                            stream: false,
-                            format: options.outputSchema ? "json" : undefined // Ollama specific JSON format
-                        }),
-                        signal: options.signal
-                    });
-                    return response.json();
-                },
-                normalize: (rawResponse, options) => {
-                    // This normalization is highly dependent on the generic API's response structure
-                    if (rawResponse.response) {
-                        try {
-                            const data = options.outputSchema ? JSON.parse(rawResponse.response) : rawResponse.response;
-                            return { success: true, data, provider: "genericAPI", model: options.model, metadata: { latency: options.latency } };
-                        } catch (e) {
-                            return { success: false, error: "Failed to parse JSON response from Generic API.", provider: "genericAPI", model: options.model, metadata: { latency: options.latency } };
-                        }
-                    }
-                    return { success: false, error: rawResponse.error || "Generic API: Unknown error", provider: "genericAPI", model: options.model, metadata: { latency: options.latency } };
-                }
+            cloudflare: { // Assuming Cloudflare is a target provider for the worker, renamed from genericAPI
+                name: "Cloudflare Workers AI",
+                models: [{ id: "@cf/meta/llama-2-7b-chat-int8", name: "Llama 2 (Cloudflare)" }]
             }
+            // Add other provider UI configurations here, matching worker's expected provider names.
         };
-       // let currentProviderName = "genericAPI"; can change before 🔥
+
         let currentProviderName = "openrouter"; // Default provider
 
-        // AIProvider Interface
+        // AIProvider Interface - Now routes all calls through the Cloudflare Worker proxy
         const AIProvider = {
-            // Analyzes a prompt using the selected LLM provider and model.
             async analyze(prompt, options = {}) {
-                const { providerName = currentProviderName, model, timeout = DEFAULT_TIMEOUT, outputSchema } = options;
-                const provider = providersConfig[providerName];
-                const apiKey = API_KEYS[providerName];
-
-                if (!provider) {
-                    return { success: false, error: `Provider "${providerName}" not configured.`, provider: providerName, model, metadata: { latency: 0 } };
-                }
-                if (!apiKey || apiKey === `YOUR_${providerName.toUpperCase()}_API_KEY`) {
-                    return { success: false, error: `API Key for ${providerName} is not configured.`, provider: providerName, model, metadata: { latency: 0 } };
-                }
-                if (!model) {
-                    return { success: false, error: `No model selected for provider "${providerName}".`, provider: providerName, model, metadata: { latency: 0 } };
-                }
+                const { providerName, outputSchema, model } = options; // Keep model in options for metadata
+                const workerUrl = `${WORKER_BASE_URL}/api/complete`;
 
                 const controller = new AbortController();
                 const signal = controller.signal;
+                const timeout = options.timeout || DEFAULT_TIMEOUT;
                 const timer = setTimeout(() => controller.abort(), timeout);
                 const startTime = Date.now();
 
+                let errorMessage = null;
+                let rawData = null;
+                let success = false;
+                let usedProvider = providerName; // Default to requested providerName
+
                 try {
-                    const rawResponse = await provider.adapter(prompt, { ...options, model, signal }, apiKey);
-                    clearTimeout(timer);
-                    const latency = Date.now() - startTime;
-                    return provider.normalize(rawResponse, { ...options, model, latency });
+                  const resp = await fetch(workerUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ prompt, provider: providerName || null, model: model || null }), // Pass model to worker if it handles it
+                    signal: signal
+                  });
+                  rawData = await resp.json();
+                  clearTimeout(timer);
+
+                  if (!resp.ok) {
+                    errorMessage = rawData.error || `Worker request failed with status ${resp.status}`;
+                  } else {
+                    success = true;
+                    usedProvider = rawData.provider_used || providerName; // Worker can return which provider it actually used
+                  }
+
                 } catch (err) {
-                    clearTimeout(timer);
-                    const latency = Date.now() - startTime;
-                    let errorMessage = err.name === 'AbortError' ? `Request timed out after ${timeout}ms.` : err.message;
-                    return { success: false, error: `${providerName}: ${errorMessage}`, provider: providerName, model, metadata: { latency } };
+                  clearTimeout(timer);
+                  errorMessage = err.name === 'AbortError' ? `Request timed out after ${timeout}ms.` : err.message;
+                }
+
+                const latency = Date.now() - startTime;
+                const timestamp = new Date().toISOString();
+
+                if (!success) {
+                  return { success: false, error: errorMessage, provider: usedProvider, model: model, metadata: { latency, timestamp } };
+                }
+
+                try {
+                  const parsed = outputSchema ? JSON.parse(rawData.text.replace(/```json|```/g, "").trim()) : rawData.text;
+                  return { success: true, data: parsed, provider: usedProvider, model: model, metadata: { latency, timestamp } };
+                } catch (e) {
+                  return { success: false, error: `Invalid JSON from LLM: ${e.message}`, provider: usedProvider, model: model, metadata: { latency, timestamp } };
                 }
             },
 
-            // Sets the active LLM provider.
             setProvider(name) {
                 if (providersConfig[name]) {
                     currentProviderName = name;
                     return true;
                 }
-                console.warn(`Provider "${name}" not found.`);
+                console.warn(`Provider "${name}" not found in client config.`);
                 return false;
             },
 
-            // Gets the name of the current active provider.
             getCurrentProviderName() {
                 return currentProviderName;
             },
 
-            // Lists all configured providers and their available models.
             listProviders() {
                 return providersConfig;
             }
