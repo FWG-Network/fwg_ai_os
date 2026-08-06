@@ -60,8 +60,13 @@ async def submit_user_feedback(
 
     # ── ✅ Mine: Fallback — direct processing ─────────────────────────
     try:
-        from backend.learning.events import learning_event_service
-        await learning_event_service.record(event)
+        from backend.learning.online_learning import online_learning_service
+        await online_learning_service.process_feedback(
+            user_id=event.user_id,
+            item_id=event.item_id,
+            event_type=event.event_type,
+            value=event.value,
+        )
         log.info("[Feedback] ✅ Recorded to learning system")
     except Exception as e:
         log.warning(f"[Feedback] Learning skipped: {e}")
