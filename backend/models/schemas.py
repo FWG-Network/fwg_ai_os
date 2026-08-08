@@ -70,3 +70,19 @@ class EditorialIntent(BaseModel):
     desired_clip_characteristics: dict | None = None
     reject_content_types: list[str] = []
     target_emotions: list[str] = []
+
+class MomentType(BaseModel):
+    name: str
+    keywords: list[str]
+
+class SceneType(BaseModel):
+    name: str
+    visual_cues: list[str]
+
+class MomentOntologyCategory(BaseModel):
+    category: str
+    moment_types: list[MomentType]
+    scene_types: list[SceneType]
+
+class MomentOntology(BaseModel):
+    ontology: list[MomentOntologyCategory]
