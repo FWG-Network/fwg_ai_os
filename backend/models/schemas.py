@@ -62,3 +62,11 @@ class ContentItem(BaseModel):
     text: str
     metadata: Optional[dict] = None
     embedding: Optional[List[float]] = None
+
+class EditorialIntent(BaseModel):
+    topic: str
+    niche: str
+    creative_brief_summary: str
+    desired_clip_characteristics: dict | None = None
+    reject_content_types: list[str] = []
+    target_emotions: list[str] = []

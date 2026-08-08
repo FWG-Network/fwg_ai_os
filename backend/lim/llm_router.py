@@ -41,6 +41,7 @@ TASK_CATEGORY = {
     "discovery": "legacy",
     "rag":       "legacy",
     "summarize": "legacy",
+    "editorial_planning": "premium",
 
     "reasoning": "premium",
     "story":     "premium",
