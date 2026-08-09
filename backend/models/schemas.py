@@ -104,3 +104,15 @@ class DiscoveryMission(BaseModel):
     estimated_cost: str
     expected_yield: str
     platform_strategies: list[PlatformStrategy]
+
+class RawClip(BaseModel):
+    id: str
+    url: str
+    title: str
+    platform: str
+    channel: str | None = None
+    tags: list[str] = []
+    views: int = 0
+    likes: int = 0
+    engagement_rate: float = 0
+    published_at: str | None = None

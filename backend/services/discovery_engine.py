@@ -202,4 +202,52 @@ class DiscoveryEngine:
         }
 
 
+
+    # ── Phase 1D: SourceHunterAgent execution layer ─────────────
+    async def discover_from_strategy(self, query: str, filters: dict | None = None) -> list[dict]:
+        """
+        Execute a single search query (already resolved by SourceHunterAgent
+        from a PlatformStrategy's primary_queries/keywords) against YouTube,
+        reusing existing cache + dedup pattern. Returns raw connector results
+        (list[dict], same shape as discover()/smart_discover() candidates).
+        """
+        filters = filters or {}
+        cache_key = f"discovery:strategy:{query}"
+        r = self._get_redis()
+
+        if r:
+            try:
+                cached = r.get(cache_key)
+                if cached:
+                    log.info(f"[DiscoveryEngine] Strategy cache hit: '{query}'")
+                    return json.loads(cached)
+            except Exception as e:
+                log.warning(f"[DiscoveryEngine] Strategy cache read failed: {e}")
+
+        try:
+            search_kwargs = {"min_views": filters.get("min_views", 0), "exclude_reposts": True}
+            if "days_ago_start" in filters:
+                search_kwargs["days_ago_start"] = filters["days_ago_start"]
+            if "days_ago_end" in filters:
+                search_kwargs["days_ago_end"] = filters["days_ago_end"]
+            if "region_code" in filters:
+                search_kwargs["region_code"] = filters["region_code"]
+            if "relevance_language" in filters:
+                search_kwargs["relevance_language"] = filters["relevance_language"]
+
+            results = await youtube_connector.search(query, **search_kwargs)
+        except Exception as e:
+            log.error(f"[DiscoveryEngine] Strategy search failed for '{query}': {e}")
+            return []
+
+        if r:
+            try:
+                r.setex(cache_key, CACHE_TTL_SECONDS, json.dumps(results))
+            except Exception as e:
+                log.warning(f"[DiscoveryEngine] Strategy cache write failed: {e}")
+
+        log.info(f"[DiscoveryEngine] discover_from_strategy: {len(results)} results for '{query}'")
+        return results
+
+
 discovery_engine_service = DiscoveryEngine()
