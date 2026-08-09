@@ -86,3 +86,21 @@ class MomentOntologyCategory(BaseModel):
 
 class MomentOntology(BaseModel):
     ontology: list[MomentOntologyCategory]
+
+class PlatformStrategy(BaseModel):
+    platform: str
+    search_approach: str
+    primary_queries: list[str] | None = None
+    secondary_queries: list[str] | None = None
+    hashtags: list[str] | None = None
+    keywords: list[str] | None = None
+    filters: dict = {}
+
+class DiscoveryMission(BaseModel):
+    mission_focus: str
+    clip_criteria: dict
+    priority_score: int
+    confidence_score: int
+    estimated_cost: str
+    expected_yield: str
+    platform_strategies: list[PlatformStrategy]
