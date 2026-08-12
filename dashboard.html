@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FWG AI OS Dashboard</title>
+    <link rel="stylesheet" href="./dashboard.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Static dashboard skeleton</p>
+          <h1>FWG AI OS</h1>
+          <p class="subtitle">Control discovery, ranking, memory, LLM, OS actions, and trend workflows from one page.</p>
+        </div>
+        <div class="hero-card">
+          <label for="api-base">API base</label>
+          <input id="api-base" type="text" value="http://localhost:8000" />
+          <button id="health-check" class="primary">Check OS status</button>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="card">
+          <div class="card-header">
+            <h2>Discover</h2>
+            <span class="pill">POST /api/v1/discovery/discover</span>
+          </div>
+          <label>Topic</label>
+          <input id="discover-topic" type="text" value="AI creator trends" />
+          <label>Mode</label>
+          <select id="discover-mode">
+            <option value="smart">smart</option>
+            <option value="simple">simple</option>
+          </select>
+          <button class="primary" data-action="discover">Run discovery</button>
+          <pre id="discover-output" class="output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Ranking</h2>
+            <span class="pill">POST /api/v1/ranking/rank</span>
+          </div>
+          <label>Candidate JSON</label>
+          <textarea id="ranking-input">[{"id":"1","title":"Sample video","platform":"youtube","semantic_score":0.91,"views":120000,"likes":9800,"age_days":4,"followers":2500,"creator":"Creator A","tags":["ai","news"]}]</textarea>
+          <button class="primary" data-action="rank">Rank candidates</button>
+          <pre id="ranking-output" class="output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Feedback</h2>
+            <span class="pill">POST /api/v1/feedback/</span>
+          </div>
+          <div class="row">
+            <div>
+              <label>User ID</label>
+              <input id="feedback-user" type="text" value="demo-user" />
+            </div>
+            <div>
+              <label>Item ID</label>
+              <input id="feedback-item" type="text" value="demo-item" />
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Event type</label>
+              <select id="feedback-event">
+                <option value="like">like</option>
+                <option value="dislike">dislike</option>
+                <option value="skip">skip</option>
+                <option value="watch_time">watch_time</option>
+                <option value="impression">impression</option>
+              </select>
+            </div>
+            <div>
+              <label>Value</label>
+              <input id="feedback-value" type="number" step="0.1" value="1" />
+            </div>
+          </div>
+          <button class="primary" data-action="feedback">Send feedback</button>
+          <pre id="feedback-output" class="output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>LLM</h2>
+            <span class="pill">POST /api/v1/generate</span>
+          </div>
+          <label>Prompt</label>
+          <textarea id="llm-prompt">Summarize the latest AI creator trend in a concise report.</textarea>
+          <button class="primary" data-action="llm">Generate</button>
+          <pre id="llm-output" class="output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>OS actions</h2>
+            <span class="pill">/api/v1/os/*</span>
+          </div>
+          <label>Goal</label>
+          <input id="os-goal" type="text" value="Research AI creator trends" />
+          <div class="buttons-row">
+            <button class="secondary" data-action="os-plan">Plan</button>
+            <button class="secondary" data-action="os-execute">Execute</button>
+          </div>
+          <pre id="os-output" class="output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Memory</h2>
+            <span class="pill">POST /api/v1/add and /api/v1/search</span>
+          </div>
+          <label>Memory text</label>
+          <textarea id="memory-text">Example memory entry for the dashboard.</textarea>
+          <div class="buttons-row">
+            <button class="secondary" data-action="memory-add">Add</button>
+            <button class="secondary" data-action="memory-search">Search</button>
+          </div>
+          <label>Search query</label>
+          <input id="memory-query" type="text" value="dashboard" />
+          <pre id="memory-output" class="output"></pre>
+        </section>
+
+        <section class="card">
+          <div class="card-header">
+            <h2>Trends</h2>
+            <span class="pill">POST /api/v1/scan and GET /api/v1/briefing</span>
+          </div>
+          <div class="buttons-row">
+            <button class="secondary" data-action="trend-scan">Scan</button>
+            <button class="secondary" data-action="trend-briefing">Briefing</button>
+          </div>
+          <pre id="trend-output" class="output"></pre>
+        </section>
+      </main>
+    </div>
+
+    <script src="./dashboard.js"></script>
+  </body>
+</html>
