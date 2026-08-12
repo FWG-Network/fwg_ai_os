@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 # --- Discovery ---
@@ -112,7 +112,9 @@ class RawClip(BaseModel):
     platform: str
     channel: str | None = None
     tags: list[str] = []
-    views: int = 0
-    likes: int = 0
-    engagement_rate: float = 0
+    views: int | None = None
+    likes: int | None = None
+    engagement_rate: float | None = None
     published_at: str | None = None
+    observed_metrics: dict = Field(default_factory=dict)
+    metric_schema_version: str | None = None

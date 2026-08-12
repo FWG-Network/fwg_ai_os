@@ -3,7 +3,7 @@ from typing import Optional
 
 from backend.models.schemas import DiscoveryMission, PlatformStrategy, RawClip
 
-SUPPORTED_PLATFORMS = {"youtube"}
+SUPPORTED_PLATFORMS = {"youtube", "tiktok"}
 
 # Fields YouTubeConnector.search() actually accepts, mapped from mission
 # filter dict keys. Anything not listed here is UNSUPPORTED and must be
@@ -115,6 +115,8 @@ class SourceHunterAgent:
             likes=item.get("likes", 0),
             engagement_rate=item.get("engagement_rate", 0),
             published_at=item.get("published_at"),
+            observed_metrics=item.get("observed_metrics", {}),
+            metric_schema_version=item.get("metric_schema_version"),
         )
 
     async def hunt(self, missions: list[DiscoveryMission]) -> list[RawClip]:
@@ -149,7 +151,7 @@ class SourceHunterAgent:
                 for query in queries:
                     try:
                         results = await self.discovery_engine.discover_from_strategy(
-                            query, translated_filters
+                            query, translated_filters, platform=platform
                         )
                     except Exception as e:
                         self.logger.error(

@@ -14,15 +14,15 @@ import redis
 from sqlalchemy.orm import Session
 
 from backend.services.connectors.youtube import youtube_connector
+from backend.services.connectors.apify import tiktok_connector
 from backend.core.config import settings
 from backend.core.logger import log
 
 
 MODIFIERS = ["viral", "shocking", "epic", "new"]
 
-PLATFORMS_AVAILABLE = ["youtube"]
+PLATFORMS_AVAILABLE = ["youtube", "tiktok"]
 PLATFORMS_PENDING   = [
-    "tiktok (Apify vs HF Space delegation — pending)",
     "reddit (Devvit Developer Platform registration required)",
 ]
 
@@ -204,14 +204,25 @@ class DiscoveryEngine:
 
 
     # ── Phase 1D: SourceHunterAgent execution layer ─────────────
-    async def discover_from_strategy(self, query: str, filters: dict | None = None) -> list[dict]:
+    async def discover_from_strategy(self, query: str, filters: dict | None = None, platform: str = "youtube") -> list[dict]:
         """
         Execute a single search query (already resolved by SourceHunterAgent
-        from a PlatformStrategy's primary_queries/keywords) against YouTube,
-        reusing existing cache + dedup pattern. Returns raw connector results
-        (list[dict], same shape as discover()/smart_discover() candidates).
+        from a PlatformStrategy's primary_queries/keywords) against YouTube
+        or TikTok, reusing existing cache + dedup pattern where applicable.
+        Returns raw connector results (list[dict], same shape as
+        discover()/smart_discover() candidates).
         """
         filters = filters or {}
+
+        if platform == "tiktok":
+            try:
+                results = await tiktok_connector.search(query, limit=10)
+            except Exception as e:
+                log.error(f"[DiscoveryEngine] TikTok strategy search failed for '{query}': {e}")
+                return []
+            log.info(f"[DiscoveryEngine] discover_from_strategy: {len(results)} TikTok results for '{query}'")
+            return results
+
         cache_key = f"discovery:strategy:{query}"
         r = self._get_redis()
 

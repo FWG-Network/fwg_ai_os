@@ -74,7 +74,7 @@ async def test_multiple_primary_queries_each_executed_independently(agent, mock_
 
 @pytest.mark.asyncio
 async def test_one_failed_query_does_not_abort_remaining(agent, mock_discovery_engine):
-    async def side_effect(query, filters):
+    async def side_effect(query, filters, platform=None):
         if query == "bad query":
             raise Exception("simulated failure")
         return [{"id": f"clip-{query}", "url": "u", "title": "t", "platform": "youtube"}]
@@ -106,7 +106,7 @@ async def test_empty_primary_and_keywords_skips_strategy(agent, mock_discovery_e
 
 @pytest.mark.asyncio
 async def test_unsupported_platform_warning_skip(agent, mock_discovery_engine, caplog):
-    mission = make_mission(platform="tiktok", primary_queries=["test"])
+    mission = make_mission(platform="reddit", primary_queries=["test"])
     clips = await agent.hunt([mission])
     mock_discovery_engine.discover_from_strategy.assert_not_called()
     assert clips == []
