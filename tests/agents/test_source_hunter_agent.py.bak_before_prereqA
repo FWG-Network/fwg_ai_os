@@ -136,32 +136,18 @@ async def test_connector_failure_does_not_crash(agent, mock_discovery_engine):
 async def test_dedup_across_missions(agent, mock_discovery_engine):
     mission1 = make_mission(primary_queries=["query one"])
     mission2 = make_mission(primary_queries=["query two"])
-    result = await agent.hunt([mission1, mission2])
+    clips = await agent.hunt([mission1, mission2])
     # same mocked clip id "abc123" returned every call -> deduped to 1
-    assert len(result.clips) == 1
-    assert len(result.provenance["abc123"]) == 2
+    assert len(clips) == 1
 
 
 @pytest.mark.asyncio
 async def test_dedup_across_multiple_queries_same_strategy(agent, mock_discovery_engine):
     mission = make_mission(primary_queries=["query a", "query b", "query c"])
-    result = await agent.hunt([mission])
+    clips = await agent.hunt([mission])
     # mock returns clip id "abc123" for every query -> deduped to 1
-    assert len(result.clips) == 1
-    assert len(result.provenance["abc123"]) == 3
+    assert len(clips) == 1
     assert mock_discovery_engine.discover_from_strategy.call_count == 3
-
-@pytest.mark.asyncio
-async def test_provenance_record_shape(agent, mock_discovery_engine):
-    mission = make_mission(primary_queries=["query one"])
-    result = await agent.hunt([mission])
-    records = result.provenance["abc123"]
-    assert len(records) == 1
-    record = records[0]
-    assert set(record.keys()) == {"query", "platform", "mission_focus"}
-    assert record["query"] == "query one"
-    assert record["platform"] == "youtube"
-    assert record["mission_focus"] == mission.mission_focus
 
 
 @pytest.mark.asyncio

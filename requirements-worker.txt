@@ -1,0 +1,40 @@
+# --- Core Application Framework ---
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+httpx[http2]
+
+# --- State, Database & Task Queue ---
+sqlalchemy
+psycopg2-binary
+redis
+celery
+
+# --- AI & Machine Learning ---
+numpy
+scikit-learn
+
+# --- OCR (AI_STACK.md frozen decision: PaddleOCR is primary) ---
+
+# --- LLM Orchestration & Configuration ---
+openai
+anthropic
+PyYAML
+
+# --- Vector Database Client ---
+qdrant-client
+
+# --- Testing Framework ---
+pytest
+pytest-asyncio
+
+# cloud_functions/requirements.txt
+functions-framework
+playwright
+fake-useragent
+
+# Hunnging Face Spaces 🤗
+fastapi
+uvicorn[standard]
+requests

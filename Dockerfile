@@ -10,7 +10,7 @@ RUN useradd -m -u 1000 user
 USER user
 ENV PATH=/home/user/.local/bin:$PATH
 
-COPY requirements.txt .
+COPY requirements-worker.txt /app/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 

@@ -118,8 +118,3 @@ class RawClip(BaseModel):
     published_at: str | None = None
     observed_metrics: dict = Field(default_factory=dict)
     metric_schema_version: str | None = None
-
-
-class SourceHunterResult(BaseModel):
-    clips: list[RawClip]
-    provenance: dict[str, list[dict]] = Field(default_factory=dict)

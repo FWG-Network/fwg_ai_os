@@ -1,0 +1,212 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.1, pytest-9.1.1, pluggy-1.6.0 -- /home/codespace/.python/current/bin/python3
+cachedir: .pytest_cache
+rootdir: /workspaces/fwg_ai_os
+configfile: pytest.ini
+plugins: anyio-4.14.2, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 8 items
+
+tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_success FAILED [ 12%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_parses_without_markdown_fence FAILED [ 25%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_retries_on_malformed_json FAILED [ 37%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_retries_on_validation_error FAILED [ 50%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_raises_after_max_retries FAILED [ 62%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_uses_correct_task_type FAILED [ 75%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_normalize_mission_fills_none_fields_with_empty_lists PASSED [ 87%]
+tests/agents/test_discovery_strategy_planner_agent.py::test_normalize_mission_logs_warning_when_empty_queries_and_keywords PASSED [100%]
+
+=================================== FAILURES ===================================
+_____________________ test_plan_discovery_strategy_success _____________________
+
+    @pytest.mark.asyncio
+    async def test_plan_discovery_strategy_success():
+        router = make_mock_router([f"```json\n{valid_mission_json()}\n```"])
+        agent = DiscoveryStrategyPlannerAgent(llm_router=router, max_retries=3)
+    
+>       result = await agent.plan_discovery_strategy(make_editorial_intent(), make_moment_ontology())
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_discovery_strategy_planner_agent.py:62: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def make_editorial_intent():
+>       return EditorialIntent(
+            want=["raw skydiving freefall footage"],
+            avoid=["compilations", "viral edits"],
+            constraints=["no CGI", "handheld only"],
+            target_characteristics=["adrenaline", "authentic"],
+        )
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for EditorialIntent
+E       topic
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       niche
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       creative_brief_summary
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/agents/test_discovery_strategy_planner_agent.py:10: ValidationError
+__________ test_plan_discovery_strategy_parses_without_markdown_fence __________
+
+    @pytest.mark.asyncio
+    async def test_plan_discovery_strategy_parses_without_markdown_fence():
+        router = make_mock_router([valid_mission_json()])
+        agent = DiscoveryStrategyPlannerAgent(llm_router=router, max_retries=3)
+    
+>       result = await agent.plan_discovery_strategy(make_editorial_intent(), make_moment_ontology())
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_discovery_strategy_planner_agent.py:77: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def make_editorial_intent():
+>       return EditorialIntent(
+            want=["raw skydiving freefall footage"],
+            avoid=["compilations", "viral edits"],
+            constraints=["no CGI", "handheld only"],
+            target_characteristics=["adrenaline", "authentic"],
+        )
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for EditorialIntent
+E       topic
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       niche
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       creative_brief_summary
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/agents/test_discovery_strategy_planner_agent.py:10: ValidationError
+____________ test_plan_discovery_strategy_retries_on_malformed_json ____________
+
+    @pytest.mark.asyncio
+    async def test_plan_discovery_strategy_retries_on_malformed_json():
+        responses = [
+            "```json\n{not valid json\n```",           # attempt 1: malformed
+            f"```json\n{valid_mission_json()}\n```",   # attempt 2: valid
+        ]
+        router = make_mock_router(responses)
+        agent = DiscoveryStrategyPlannerAgent(llm_router=router, max_retries=3)
+    
+>       result = await agent.plan_discovery_strategy(make_editorial_intent(), make_moment_ontology())
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_discovery_strategy_planner_agent.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def make_editorial_intent():
+>       return EditorialIntent(
+            want=["raw skydiving freefall footage"],
+            avoid=["compilations", "viral edits"],
+            constraints=["no CGI", "handheld only"],
+            target_characteristics=["adrenaline", "authentic"],
+        )
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for EditorialIntent
+E       topic
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       niche
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       creative_brief_summary
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/agents/test_discovery_strategy_planner_agent.py:10: ValidationError
+___________ test_plan_discovery_strategy_retries_on_validation_error ___________
+
+    @pytest.mark.asyncio
+    async def test_plan_discovery_strategy_retries_on_validation_error():
+        invalid_schema_json = json.dumps([{"mission_focus": "Missing required fields"}])
+        responses = [
+            f"```json\n{invalid_schema_json}\n```",
+            f"```json\n{valid_mission_json()}\n```",
+        ]
+        router = make_mock_router(responses)
+        agent = DiscoveryStrategyPlannerAgent(llm_router=router, max_retries=3)
+    
+>       result = await agent.plan_discovery_strategy(make_editorial_intent(), make_moment_ontology())
+                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_discovery_strategy_planner_agent.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def make_editorial_intent():
+>       return EditorialIntent(
+            want=["raw skydiving freefall footage"],
+            avoid=["compilations", "viral edits"],
+            constraints=["no CGI", "handheld only"],
+            target_characteristics=["adrenaline", "authentic"],
+        )
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for EditorialIntent
+E       topic
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       niche
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       creative_brief_summary
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/agents/test_discovery_strategy_planner_agent.py:10: ValidationError
+____________ test_plan_discovery_strategy_raises_after_max_retries _____________
+
+    @pytest.mark.asyncio
+    async def test_plan_discovery_strategy_raises_after_max_retries():
+        router = make_mock_router(["```json\n{broken\n```"] * 3)
+        agent = DiscoveryStrategyPlannerAgent(llm_router=router, max_retries=3)
+    
+        with pytest.raises(Exception):
+            await agent.plan_discovery_strategy(make_editorial_intent(), make_moment_ontology())
+    
+>       assert router.generate.await_count == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = <AsyncMock name='mock.generate' id='124929912377888'>.await_count
+E        +    where <AsyncMock name='mock.generate' id='124929912377888'> = <MagicMock id='124929912378608'>.generate
+
+tests/agents/test_discovery_strategy_planner_agent.py:125: AssertionError
+_____________ test_plan_discovery_strategy_uses_correct_task_type ______________
+
+    @pytest.mark.asyncio
+    async def test_plan_discovery_strategy_uses_correct_task_type():
+        router = make_mock_router([f"```json\n{valid_mission_json()}\n```"])
+        agent = DiscoveryStrategyPlannerAgent(llm_router=router, max_retries=3)
+    
+>       await agent.plan_discovery_strategy(make_editorial_intent(), make_moment_ontology())
+                                            ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/agents/test_discovery_strategy_planner_agent.py:133: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def make_editorial_intent():
+>       return EditorialIntent(
+            want=["raw skydiving freefall footage"],
+            avoid=["compilations", "viral edits"],
+            constraints=["no CGI", "handheld only"],
+            target_characteristics=["adrenaline", "authentic"],
+        )
+E       pydantic_core._pydantic_core.ValidationError: 3 validation errors for EditorialIntent
+E       topic
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       niche
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+E       creative_brief_summary
+E         Field required [type=missing, input_value={'want': ['raw skydiving ...renaline', 'authentic']}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+tests/agents/test_discovery_strategy_planner_agent.py:10: ValidationError
+=========================== short test summary info ============================
+FAILED tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_success
+FAILED tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_parses_without_markdown_fence
+FAILED tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_retries_on_malformed_json
+FAILED tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_retries_on_validation_error
+FAILED tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_raises_after_max_retries
+FAILED tests/agents/test_discovery_strategy_planner_agent.py::test_plan_discovery_strategy_uses_correct_task_type
+========================= 6 failed, 2 passed in 0.25s ==========================
