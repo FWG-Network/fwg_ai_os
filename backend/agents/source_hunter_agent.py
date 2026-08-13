@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from backend.models.schemas import DiscoveryMission, PlatformStrategy, RawClip
+from backend.models.schemas import DiscoveryMission, PlatformStrategy, RawClip, SourceHunterResult
 
 SUPPORTED_PLATFORMS = {"youtube", "tiktok"}
 
@@ -119,9 +119,10 @@ class SourceHunterAgent:
             metric_schema_version=item.get("metric_schema_version"),
         )
 
-    async def hunt(self, missions: list[DiscoveryMission]) -> list[RawClip]:
+    async def hunt(self, missions: list[DiscoveryMission]) -> SourceHunterResult:
         all_clips: list[RawClip] = []
         seen_ids: set[str] = set()
+        provenance: dict[str, list[dict]] = {}
 
         for mission in missions:
             for strategy in mission.platform_strategies:
@@ -162,9 +163,13 @@ class SourceHunterAgent:
 
                     for item in results:
                         clip = self._map_to_raw_clip(item, platform)
-                        if clip.id and clip.id not in seen_ids:
+                        if not clip.id:
+                            continue
+                        record = {"query": query, "platform": platform, "mission_focus": mission.mission_focus}
+                        provenance.setdefault(clip.id, []).append(record)
+                        if clip.id not in seen_ids:
                             seen_ids.add(clip.id)
                             all_clips.append(clip)
 
         self.logger.info(f"[SourceHunterAgent] hunt complete: {len(all_clips)} unique clips")
-        return all_clips
+        return SourceHunterResult(clips=all_clips, provenance=provenance)

@@ -46,11 +46,11 @@ def agent(mock_discovery_engine):
 @pytest.mark.asyncio
 async def test_valid_youtube_strategy(agent, mock_discovery_engine):
     mission = make_mission(primary_queries=["raw skydiving footage"])
-    clips = await agent.hunt([mission])
+    result = await agent.hunt([mission])
     mock_discovery_engine.discover_from_strategy.assert_called_once()
-    assert len(clips) == 1
-    assert isinstance(clips[0], RawClip)
-    assert clips[0].id == "abc123"
+    assert len(result.clips) == 1
+    assert isinstance(result.clips[0], RawClip)
+    assert result.clips[0].id == "abc123"
 
 
 @pytest.mark.asyncio
@@ -81,10 +81,10 @@ async def test_one_failed_query_does_not_abort_remaining(agent, mock_discovery_e
 
     mock_discovery_engine.discover_from_strategy.side_effect = side_effect
     mission = make_mission(primary_queries=["bad query", "good query"])
-    clips = await agent.hunt([mission])
+    result = await agent.hunt([mission])
     assert mock_discovery_engine.discover_from_strategy.call_count == 2
-    assert len(clips) == 1
-    assert clips[0].id == "clip-good query"
+    assert len(result.clips) == 1
+    assert result.clips[0].id == "clip-good query"
 
 
 @pytest.mark.asyncio
@@ -99,25 +99,25 @@ async def test_keywords_fallback_when_primary_empty(agent, mock_discovery_engine
 @pytest.mark.asyncio
 async def test_empty_primary_and_keywords_skips_strategy(agent, mock_discovery_engine):
     mission = make_mission(primary_queries=[], keywords=[])
-    clips = await agent.hunt([mission])
+    result = await agent.hunt([mission])
     mock_discovery_engine.discover_from_strategy.assert_not_called()
-    assert clips == []
+    assert result.clips == []
 
 
 @pytest.mark.asyncio
 async def test_unsupported_platform_warning_skip(agent, mock_discovery_engine, caplog):
     mission = make_mission(platform="reddit", primary_queries=["test"])
-    clips = await agent.hunt([mission])
+    result = await agent.hunt([mission])
     mock_discovery_engine.discover_from_strategy.assert_not_called()
-    assert clips == []
+    assert result.clips == []
     assert "unsupported platform" in caplog.text.lower()
 
 
 @pytest.mark.asyncio
 async def test_raw_clip_mapping_fields(agent):
     mission = make_mission(primary_queries=["test query"])
-    clips = await agent.hunt([mission])
-    clip = clips[0]
+    result = await agent.hunt([mission])
+    clip = result.clips[0]
     assert clip.title == "Test Clip"
     assert clip.channel == "TestChannel"
     assert clip.views == 1000
@@ -128,26 +128,40 @@ async def test_raw_clip_mapping_fields(agent):
 async def test_connector_failure_does_not_crash(agent, mock_discovery_engine):
     mock_discovery_engine.discover_from_strategy.side_effect = Exception("API down")
     mission = make_mission(primary_queries=["test"])
-    clips = await agent.hunt([mission])
-    assert clips == []
+    result = await agent.hunt([mission])
+    assert result.clips == []
 
 
 @pytest.mark.asyncio
 async def test_dedup_across_missions(agent, mock_discovery_engine):
     mission1 = make_mission(primary_queries=["query one"])
     mission2 = make_mission(primary_queries=["query two"])
-    clips = await agent.hunt([mission1, mission2])
+    result = await agent.hunt([mission1, mission2])
     # same mocked clip id "abc123" returned every call -> deduped to 1
-    assert len(clips) == 1
+    assert len(result.clips) == 1
+    assert len(result.provenance["abc123"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_dedup_across_multiple_queries_same_strategy(agent, mock_discovery_engine):
     mission = make_mission(primary_queries=["query a", "query b", "query c"])
-    clips = await agent.hunt([mission])
+    result = await agent.hunt([mission])
     # mock returns clip id "abc123" for every query -> deduped to 1
-    assert len(clips) == 1
+    assert len(result.clips) == 1
+    assert len(result.provenance["abc123"]) == 3
     assert mock_discovery_engine.discover_from_strategy.call_count == 3
+
+@pytest.mark.asyncio
+async def test_provenance_record_shape(agent, mock_discovery_engine):
+    mission = make_mission(primary_queries=["query one"])
+    result = await agent.hunt([mission])
+    records = result.provenance["abc123"]
+    assert len(records) == 1
+    record = records[0]
+    assert set(record.keys()) == {"query", "platform", "mission_focus"}
+    assert record["query"] == "query one"
+    assert record["platform"] == "youtube"
+    assert record["mission_focus"] == mission.mission_focus
 
 
 @pytest.mark.asyncio
