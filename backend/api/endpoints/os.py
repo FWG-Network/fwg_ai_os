@@ -2,6 +2,7 @@
 backend/api/endpoints/os.py
 Autonomous OS endpoint — Fixed v4
 """
+
 import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -16,7 +17,7 @@ from backend.services.worker_client import worker_client
 
 router = APIRouter(prefix="/os", tags=["Autonomous OS"])
 
-# ── Lazy singletons ───────────────────────────────────────────────────
+# ── Lazy singletons ──────────────────────────────────────────
 _task_planner     = None
 _discovery_engine = None
 _ranking_engine   = None
@@ -46,18 +47,30 @@ def _get_ranking():
     return _ranking_engine
 
 
-# ── Schemas ───────────────────────────────────────────────────────────
+def _flatten_tasks(staged_plan: List[List[Any]]) -> List[Any]:
+    """Flatten staged TaskModel lists for endpoint response serialization.
+
+    TaskPlanner's canonical contract remains List[List[TaskModel]].
+    """
+    return [
+        task
+        for stage in staged_plan
+        for task in stage
+    ]
+
+
+# ── Schemas ───────────────────────────────────────────────────
 class OSCommand(BaseModel):
-    command:    str                          = Field(..., description="Natural language OS command")
-    user_id:    str                          = "system"
-    context:    Optional[Dict[str, Any]]     = None
-    async_mode: bool                         = False
+    command:    str                      = Field(..., description="Natural language OS command")
+    user_id:    str                      = "system"
+    context:    Optional[Dict[str, Any]] = None
+    async_mode: bool                     = False
 
 
 class AgentRunRequest(BaseModel):
-    agent:   str                   = Field(..., description="discover | trend | llm")
-    input:   Dict[str, Any]        = Field(default_factory=dict)
-    user_id: str                   = "system"
+    agent:   str            = Field(..., description="discover | trend | llm")
+    input:   Dict[str, Any] = Field(default_factory=dict)
+    user_id: str            = "system"
 
 
 class MemoryQueryRequest(BaseModel):
@@ -70,16 +83,16 @@ class OSResponse(BaseModel):
     model_config = ConfigDict(exclude_none=True)
 
     status:    str
-    task_id:   Optional[str]        = None
-    result:    Optional[Any]        = None
-    plan:      Optional[List[str]]  = None
-    agent:     Optional[str]        = None
+    task_id:   Optional[str] = None
+    result:    Optional[Any] = None
+    plan:      Optional[List[str]] = None
+    agent:     Optional[str] = None
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
 
 
-# ── Health helpers ────────────────────────────────────────────────────
+# ── Health helpers ───────────────────────────────────────────
 def _ping_qdrant() -> str:
     try:
         from qdrant_client import QdrantClient
@@ -127,7 +140,7 @@ def _ping_worker() -> str:
         return "offline (async tasks unavailable)"
 
 
-# ── Core endpoints ─────────────────────────────────────────────────────
+# ── Core endpoints ────────────────────────────────────────────
 @router.post("/submit_goal", response_model=TaskStatusResponse)
 async def submit_autonomous_os_goal(request: TaskRequest):
     """Submit high-level goal to Autonomous OS."""
@@ -160,11 +173,13 @@ async def execute_command(cmd: OSCommand):
     log.info(f"[OS] execute: '{cmd.command}' user={cmd.user_id}")
     planner = _get_planner()
     try:
-        task_models = await asyncio.to_thread(
+        staged_plan = await asyncio.to_thread(
             planner.create_plan,
             cmd.command,
             cmd.user_id,
         )
+        task_models = _flatten_tasks(staged_plan)
+
         steps         = [t.description for t in task_models]
         primary_agent = task_models[0].tool_name if task_models else "unknown"
 
@@ -200,11 +215,13 @@ async def generate_plan(cmd: OSCommand):
     """Dry-run: show plan without executing."""
     log.info(f"[OS] plan: '{cmd.command}'")
     try:
-        task_models = await asyncio.to_thread(
+        staged_plan = await asyncio.to_thread(
             _get_planner().create_plan,
             cmd.command,
             cmd.user_id,
         )
+        task_models = _flatten_tasks(staged_plan)
+
         steps = [t.description for t in task_models]
         agent = task_models[0].tool_name if task_models else "unknown"
         return OSResponse(status="planned", plan=steps, agent=agent)
@@ -232,11 +249,12 @@ async def run_agent(req: AgentRunRequest):
         elif req.agent == "trend":
             kw      = req.input.get("keywords", ["AI"])
             keyword = kw[0] if kw else "AI"
-            tasks   = await asyncio.to_thread(
+            staged_plan = await asyncio.to_thread(
                 _get_planner().create_plan,
                 f"trend {keyword}",
                 req.user_id,
             )
+            tasks = _flatten_tasks(staged_plan)
             return OSResponse(
                 status="completed",
                 result=[{"tool": t.tool_name, "desc": t.description} for t in tasks],
@@ -247,9 +265,10 @@ async def run_agent(req: AgentRunRequest):
             prompt = req.input.get("prompt", "")
             if not prompt:
                 raise HTTPException(400, "'prompt' required for llm agent")
-            tasks = await asyncio.to_thread(
+            staged_plan = await asyncio.to_thread(
                 _get_planner().create_plan, prompt, req.user_id
             )
+            tasks = _flatten_tasks(staged_plan)
             return OSResponse(
                 status="completed",
                 result=[{"tool": t.tool_name, "desc": t.description} for t in tasks],
@@ -302,7 +321,7 @@ async def system_status():
         "redis":         redis_status,
         "celery_worker": worker,
         "youtube_api":   "configured" if getattr(settings, "YOUTUBE_API_KEY", "") else "not set",
-        "hf_token":      "configured" if getattr(settings, "HF_TOKEN", "")         else "not set",
+        "hf_token":      "configured" if getattr(settings, "HF_TOKEN", "")     else "not set",
     }
     critical_ok = all("online" in services[s] for s in ["qdrant", "database"])
     any_offline = any("offline" in v for v in services.values())
@@ -336,14 +355,14 @@ async def soft_reset():
     except Exception:
         actions.append("redis_unavailable_skipped")
 
-    _task_planner = _discovery_engine = _ranking_engine = None
+    _task_planner    = _discovery_engine = _ranking_engine = None
     actions.append("service_singletons_reset")
 
     return OSResponse(
         status="reset_complete",
         result={
-            "actions": actions,
+            "actions":   actions,
             "preserved": ["personalization_data (db=0)", "user_profiles"],
-            "message": "Soft reset done. User data preserved.",
+            "message":   "Soft reset done. User data preserved.",
         },
     )

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.router import api_router
 from backend.api.endpoints.os import router as os_router
+from backend.api.endpoints.nexus import router as nexus_router
 from backend.core.config import settings
 
 app = FastAPI(
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(nexus_router, prefix="/api/v1")
 app.include_router(os_router)
 
 
@@ -27,5 +29,14 @@ def root():
     return {
         "system": settings.APP_NAME,
         "status": "online",
+        "version": "4.0",
         "architecture_phase": 30,
+    }
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok",
+        "version": "4.0",
     }

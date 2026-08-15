@@ -1,12 +1,16 @@
-# ★★★ FIX: Import the service instance directly ★★★
 from backend.aios.task_planner import task_planner_service
+from backend.models.db import Task as TaskModel
+
 
 def test_task_planner_creates_a_plan():
-    """Tests if the TaskPlanner generates a list of task descriptions."""
+    """Tests if the TaskPlanner generates a staged plan of TaskModel objects."""
     goal_description = "Test Goal"
-    plan = task_planner_service.create_plan(goal_description)
-    
-    assert isinstance(plan, list)
-    assert len(plan) > 0
-    # ★★★ FIX: Check for string type, not Task object ★★★
-    assert all(isinstance(task_desc, str) for task_desc in plan)
+    staged_plan = task_planner_service.create_plan(goal_description, goal_id=1)
+
+    assert isinstance(staged_plan, list)
+    assert len(staged_plan) > 0
+    assert all(isinstance(stage, list) for stage in staged_plan)
+
+    flat = [task for stage in staged_plan for task in stage]
+    assert len(flat) > 0
+    assert all(isinstance(task, TaskModel) for task in flat)
