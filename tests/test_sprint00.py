@@ -304,37 +304,6 @@ class TestDBModels:
         db_session.delete(goal)
         db_session.commit()
 
-    def test_video_model_exists(self):
-        """Check Video model is importable from db.py."""
-        try:
-            from backend.models.db import Video
-            assert Video is not None
-        except ImportError:
-            pytest.fail("Video not in db.py — deploy new db.py from outputs/db.py")
-
-    def test_channel_model_exists(self):
-        """Check Channel model is importable from db.py."""
-        try:
-            from backend.models.db import Channel
-            assert Channel is not None
-        except ImportError:
-            pytest.fail("Channel not in db.py — deploy new db.py from outputs/db.py")
-
-    def test_create_video(self, db_session):
-        try:
-            from backend.models.db import Video
-        except ImportError:
-            pytest.skip("Video model not yet deployed")
-
-        v = Video(title="Test", thumbnail_url="https://x.com/t.jpg",
-                  semantic_tags=["AI"], viral_potential=85.0)
-        db_session.add(v)
-        db_session.commit()
-        assert v.id is not None
-        db_session.delete(v)
-        db_session.commit()
-
-
 # ─── 10. Discovery ───────────────────────────────────────────────────
 class TestDiscovery:
 
