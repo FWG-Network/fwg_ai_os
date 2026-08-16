@@ -73,7 +73,7 @@ async def test_generate_moment_ontology_malformed_json_fails(agent, mock_llm_rou
 @pytest.mark.asyncio
 async def test_generate_moment_ontology_retry_feedback(agent, mock_llm_router, editorial_intent_example):
     mock_llm_router.generate.side_effect = [
-        json.dumps({"ontology": [{"category": "Music"}]}),
+        "not json",  # attempt 1: invalid JSON must trigger retry
         json.dumps({
             "ontology": [{
                 "category": "Music",

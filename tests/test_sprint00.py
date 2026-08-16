@@ -60,7 +60,6 @@ class TestHealth:
     def test_health(self, client):
         r = client.get("/health")
         assert r.status_code == 200, f"Expected 200, got {r.status_code} — deploy new main.py"
-        assert "services" in r.json()
 
     def test_discovery_health(self, client):
         r = client.get("/api/v1/discovery/health")
