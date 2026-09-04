@@ -7,12 +7,14 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
 from backend.core.config import settings
 from backend.core.logger import log
 from backend.models.schemas import TaskRequest, TaskStatusResponse
+from backend.models.db import get_db
 from backend.services.worker_client import worker_client
 
 router = APIRouter(prefix="/os", tags=["Autonomous OS"])
@@ -142,16 +144,47 @@ def _ping_worker() -> str:
 
 # ── Core endpoints ────────────────────────────────────────────
 @router.post("/submit_goal", response_model=TaskStatusResponse)
-async def submit_autonomous_os_goal(request: TaskRequest):
+async def submit_autonomous_os_goal(
+    request: TaskRequest,
+    db: Session = Depends(get_db),
+):
     """Submit high-level goal to Autonomous OS."""
     log.info(f"[OS] Goal: '{request.goal}' user={request.user_id}")
+
     try:
         response = await worker_client.submit_task(request)
         return TaskStatusResponse(**response)
-    except HTTPException:
-        raise
+
+    except HTTPException as e:
+        # The current repository has no HTTP worker bridge, so a 503
+        # represents worker unavailability and may safely fall back to
+        # the existing in-process AIOS lifecycle.
+        if e.status_code != 503:
+            raise
+        log.warning(
+            f"[OS] Worker unavailable, falling back to direct AIOS loop: {e}"
+        )
+
     except Exception as e:
-        log.error(f"[OS] submit_goal error: {e}")
+        log.error(f"[OS] submit_goal worker error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        from backend.aios.autonomous_loop import autonomous_loop_service
+
+        goal = await autonomous_loop_service.run(
+            goal_description=request.goal,
+            user_id=request.user_id or "system",
+            db=db,
+        )
+
+        return TaskStatusResponse(
+            task_id=str(goal.id),
+            status=goal.status,
+        )
+
+    except Exception as e:
+        log.error(f"[OS] submit_goal fallback failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -37,6 +37,48 @@ def test_os_submit_goal():
     print(f"✅ /os/submit_goal → {res.status_code}")
 
 
+def test_os_submit_goal_fallback_strict(monkeypatch):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from backend.api.endpoints import os as os_endpoint
+
+    async def fail_worker(task):
+        raise HTTPException(
+            status_code=503,
+            detail="Worker unavailable after 3 retries",
+        )
+
+    class FakeAutonomousLoop:
+        async def run(self, goal_description, user_id, db):
+            assert goal_description == "research AI trends"
+            assert user_id == "test_user"
+            assert db is not None
+            return SimpleNamespace(id=123, status="completed")
+
+    monkeypatch.setattr(
+        os_endpoint.worker_client,
+        "submit_task",
+        fail_worker,
+    )
+    import backend.aios.autonomous_loop as autonomous_loop_module
+
+    monkeypatch.setattr(
+        autonomous_loop_module,
+        "autonomous_loop_service",
+        FakeAutonomousLoop(),
+    )
+
+    res = client.post("/os/submit_goal", json={
+        "goal": "research AI trends",
+        "user_id": "test_user",
+    })
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["task_id"] == "123"
+    assert data["status"] == "completed"
+
+
 def test_os_agent_run_discover():
     res = client.post("/os/agent/run", json={
         "agent": "discover",
