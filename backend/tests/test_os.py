@@ -62,3 +62,101 @@ def test_os_reset():
     data = res.json()
     assert data["status"] == "reset_complete"
     print(f"✅ /os/reset → {data['result']['actions']}")
+
+
+def test_os_agent_run_discover_strict(monkeypatch):
+    from types import SimpleNamespace
+    from backend.api.endpoints import os as os_endpoint
+
+    class FakeDiscovery:
+        async def discover(self, topic):
+            assert topic == "AI trends"
+            return [{"title": "clip-1"}]
+
+    class FakeRanking:
+        def rank(self, candidates, user_id=None):
+            assert candidates == [{"title": "clip-1"}]
+            assert user_id == "test_user"
+            return [{"title": "clip-1", "score": 0.99}]
+
+    monkeypatch.setattr(os_endpoint, "_get_discovery", lambda: FakeDiscovery())
+    monkeypatch.setattr(os_endpoint, "_get_ranking", lambda: FakeRanking())
+
+    res = client.post("/os/agent/run", json={
+        "agent": "discover",
+        "input": {"topic": "AI trends"},
+        "user_id": "test_user",
+    })
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "completed"
+    assert data["agent"] == "discover+rank"
+    assert data["result"]["total"] == 1
+    assert data["result"]["ranked_content"] == [
+        {"title": "clip-1", "score": 0.99}
+    ]
+
+
+def test_os_agent_run_trend(monkeypatch):
+    from types import SimpleNamespace
+    from backend.api.endpoints import os as os_endpoint
+
+    class FakePlanner:
+        def create_plan(self, command, user_id):
+            assert command == "trend AI"
+            assert user_id == "test_user"
+            return object()
+
+    tasks = [
+        SimpleNamespace(tool_name="trend_scanner", description="scan AI trends")
+    ]
+
+    monkeypatch.setattr(os_endpoint, "_get_planner", lambda: FakePlanner())
+    monkeypatch.setattr(os_endpoint, "_flatten_tasks", lambda staged: tasks)
+
+    res = client.post("/os/agent/run", json={
+        "agent": "trend",
+        "input": {"keywords": ["AI"]},
+        "user_id": "test_user",
+    })
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "completed"
+    assert data["agent"] == "trend_scanner"
+    assert data["result"] == [
+        {"tool": "trend_scanner", "desc": "scan AI trends"}
+    ]
+
+
+def test_os_agent_run_llm(monkeypatch):
+    from types import SimpleNamespace
+    from backend.api.endpoints import os as os_endpoint
+
+    class FakePlanner:
+        def create_plan(self, command, user_id):
+            assert command == "research AI video trends"
+            assert user_id == "test_user"
+            return object()
+
+    tasks = [
+        SimpleNamespace(tool_name="llm", description="analyze AI video trends")
+    ]
+
+    monkeypatch.setattr(os_endpoint, "_get_planner", lambda: FakePlanner())
+    monkeypatch.setattr(os_endpoint, "_flatten_tasks", lambda staged: tasks)
+
+    res = client.post("/os/agent/run", json={
+        "agent": "llm",
+        "input": {"prompt": "research AI video trends"},
+        "user_id": "test_user",
+    })
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "completed"
+    assert data["agent"] == "llm"
+    assert data["result"] == [
+        {"tool": "llm", "desc": "analyze AI video trends"}
+    ]
