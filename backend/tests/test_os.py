@@ -249,3 +249,172 @@ def test_os_task_status_falls_back_to_goal_db(monkeypatch):
             cleanup.delete(persisted)
         cleanup.commit()
         cleanup.close()
+
+
+def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
+    from fastapi import HTTPException
+    from backend.api.endpoints import os as os_endpoint
+
+    async def worker_unavailable(_task):
+        raise HTTPException(
+            status_code=503,
+            detail="Worker unavailable",
+        )
+
+    class FakeGoal:
+        id = 990001
+        status = "completed"
+
+    async def fake_run(*, goal_description, user_id, db):
+        assert goal_description == "fallback execute test"
+        assert user_id == "test-user"
+        assert db is not None
+        return FakeGoal()
+
+    monkeypatch.setattr(
+        os_endpoint.worker_client,
+        "submit_task",
+        worker_unavailable,
+    )
+
+    from backend.aios.autonomous_loop import autonomous_loop_service
+
+    monkeypatch.setattr(
+        autonomous_loop_service,
+        "run",
+        fake_run,
+    )
+
+    response = client.post(
+        "/os/execute",
+        json={
+            "command": "fallback execute test",
+            "user_id": "test-user",
+            "async_mode": True,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert data["task_id"] == "990001"
+
+
+def test_os_memory_query_strict_success(monkeypatch):
+    from backend.lim.vector_memory import vector_memory_service
+
+    calls = {}
+
+    def fake_search(query, top_k, collection):
+        calls["args"] = (query, top_k, collection)
+        return [
+            {
+                "id": "mem-1",
+                "score": 0.9876,
+                "text": "AI video trend",
+                "metadata": {"source": "test"},
+            }
+        ]
+
+    monkeypatch.setattr(
+        vector_memory_service,
+        "search",
+        fake_search,
+    )
+
+    res = client.post(
+        "/os/memory/query",
+        json={
+            "query": "AI video trends",
+            "top_k": 3,
+            "collection": "fwg_test",
+        },
+    )
+
+    assert res.status_code == 200
+
+    data = res.json()
+    assert data["status"] == "completed"
+    assert data["agent"] == "vector_memory"
+    assert data["result"]["query"] == "AI video trends"
+    assert data["result"]["top_k"] == 3
+    assert data["result"]["results"] == [
+        {
+            "id": "mem-1",
+            "score": 0.9876,
+            "text": "AI video trend",
+            "metadata": {"source": "test"},
+        }
+    ]
+    assert calls["args"] == (
+        "AI video trends",
+        3,
+        "fwg_test",
+    )
+
+
+def test_os_memory_query_rejects_invalid_top_k():
+    for top_k in (0, 21):
+        res = client.post(
+            "/os/memory/query",
+            json={
+                "query": "AI video trends",
+                "top_k": top_k,
+            },
+        )
+
+        assert res.status_code == 422
+
+
+def test_os_memory_query_propagates_service_failure_as_500(monkeypatch):
+    from backend.lim.vector_memory import vector_memory_service
+
+    def failing_search(query, top_k, collection):
+        raise RuntimeError("memory backend failure")
+
+    monkeypatch.setattr(
+        vector_memory_service,
+        "search",
+        failing_search,
+    )
+
+    res = client.post(
+        "/os/memory/query",
+        json={
+            "query": "AI video trends",
+            "top_k": 3,
+        },
+    )
+
+    assert res.status_code == 500
+    assert res.json()["detail"] == "memory backend failure"
+
+
+def test_os_memory_query_uses_existing_vector_memory_singleton(monkeypatch):
+    from backend.lim.vector_memory import vector_memory_service
+
+    sentinel = [
+        {
+            "id": "singleton-1",
+            "score": 1.0,
+            "text": "singleton",
+            "metadata": {},
+        }
+    ]
+
+    monkeypatch.setattr(
+        vector_memory_service,
+        "search",
+        lambda query, top_k, collection: sentinel,
+    )
+
+    res = client.post(
+        "/os/memory/query",
+        json={
+            "query": "singleton check",
+            "top_k": 1,
+        },
+    )
+
+    assert res.status_code == 200
+    assert res.json()["result"]["results"] == sentinel

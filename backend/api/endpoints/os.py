@@ -252,7 +252,10 @@ async def get_task_status(
 
 
 @router.post("/execute", response_model=OSResponse)
-async def execute_command(cmd: OSCommand):
+async def execute_command(
+    cmd: OSCommand,
+    db: Session = Depends(get_db),
+):
     """Natural language → create_plan → execute."""
     log.info(f"[OS] execute: '{cmd.command}' user={cmd.user_id}")
     planner = _get_planner()
@@ -268,16 +271,51 @@ async def execute_command(cmd: OSCommand):
         primary_agent = task_models[0].tool_name if task_models else "unknown"
 
         if cmd.async_mode:
-            # ✅ Fix 1: await submit_task
-            task = await worker_client.submit_task(
-                TaskRequest(goal=cmd.command, user_id=cmd.user_id)
-            )
-            return OSResponse(
-                status="queued",
-                task_id=task.get("task_id"),
-                plan=steps,
-                agent=primary_agent,
-            )
+            try:
+                task = await worker_client.submit_task(
+                    TaskRequest(goal=cmd.command, user_id=cmd.user_id)
+                )
+                return OSResponse(
+                    status="queued",
+                    task_id=task.get("task_id"),
+                    plan=steps,
+                    agent=primary_agent,
+                )
+
+            except HTTPException as e:
+                if e.status_code != 503:
+                    raise
+
+                log.warning(
+                    "[OS] Worker unavailable for async execute; "
+                    "falling back to local AIOS loop"
+                )
+
+            except Exception as e:
+                log.error(f"[OS] execute worker error: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+            try:
+                from backend.aios.autonomous_loop import (
+                    autonomous_loop_service,
+                )
+
+                goal = await autonomous_loop_service.run(
+                    goal_description=cmd.command,
+                    user_id=cmd.user_id or "system",
+                    db=db,
+                )
+
+                return OSResponse(
+                    status=goal.status,
+                    task_id=str(goal.id),
+                    plan=steps,
+                    agent=primary_agent,
+                )
+
+            except Exception as e:
+                log.error(f"[OS] execute fallback failed: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
 
         return OSResponse(
             status="planned",
