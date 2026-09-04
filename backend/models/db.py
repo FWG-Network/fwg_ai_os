@@ -92,6 +92,42 @@ class Task(Base):
 
 
 # ─── User (personalization) ───────────────────────────────────────────
+# --- DiscoveryJob (Phase 3.5 persistence) ---
+class DiscoveryJob(Base):
+    __tablename__ = "discovery_jobs"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    status: Mapped[str] = mapped_column(
+        String(50), default="pending", nullable=False
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    last_error: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    result_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DiscoveryJob id={self.id} "
+            f"status={self.status} attempts={self.attempts}>"
+        )
+
+
 class User(Base):
     __tablename__ = "users"
 

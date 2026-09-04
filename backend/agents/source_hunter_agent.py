@@ -1,7 +1,16 @@
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
-from backend.models.schemas import DiscoveryMission, PlatformStrategy, RawClip, SourceHunterResult
+from sqlalchemy.orm import Session
+
+from backend.models.db import DiscoveryJob
+from backend.models.schemas import (
+    DiscoveryMission,
+    PlatformStrategy,
+    RawClip,
+    SourceHunterResult,
+)
 
 SUPPORTED_PLATFORMS = {"youtube", "tiktok"}
 
@@ -30,9 +39,20 @@ class SourceHunterAgent:
     validation, query resolution, and mission-filter -> connector-param
     translation. Does NOT implement its own YouTube client, cache, or
     dedup — reuses DiscoveryEngine's existing infrastructure.
+
+    Phase 3.5:
+    - When db is provided to hunt(), persist one DiscoveryJob lifecycle.
+    - Query-level failures do not abort remaining queries.
+    - Partial query failures complete the job and record last_error.
+    - If every executable query fails, the job is marked failed.
+    - When db is omitted, preserve the original standalone behavior.
     """
 
-    def __init__(self, discovery_engine, logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        discovery_engine,
+        logger: Optional[logging.Logger] = None,
+    ):
         self.discovery_engine = discovery_engine
         self.logger = logger or logging.getLogger(__name__)
 
@@ -53,7 +73,12 @@ class SourceHunterAgent:
 
         return []
 
-    def _translate_filters(self, filters: dict, mission_focus: str, platform: str) -> dict:
+    def _translate_filters(
+        self,
+        filters: dict,
+        mission_focus: str,
+        platform: str,
+    ) -> dict:
         """
         Translate mission-level filter dict into YouTubeConnector.search()'s
         actual accepted params. Unsupported fields produce an explicit
@@ -73,7 +98,9 @@ class SourceHunterAgent:
                     )
 
             elif key == "language":
-                lang_code = _LANGUAGE_MAP.get(str(value).strip().lower())
+                lang_code = _LANGUAGE_MAP.get(
+                    str(value).strip().lower()
+                )
                 if lang_code:
                     translated["relevance_language"] = lang_code
                 else:
@@ -84,7 +111,9 @@ class SourceHunterAgent:
                     )
 
             elif key == "upload_date":
-                days = _UPLOAD_DATE_TO_DAYS.get(str(value).strip().lower())
+                days = _UPLOAD_DATE_TO_DAYS.get(
+                    str(value).strip().lower()
+                )
                 if days is not None:
                     translated["days_ago_start"] = days
                 else:
@@ -96,9 +125,9 @@ class SourceHunterAgent:
 
             if key not in recognized_keys:
                 self.logger.warning(
-                    f"[SourceHunterAgent] Filter '{key}'={value!r} for mission "
-                    f"'{mission_focus}' on '{platform}' is NOT supported by "
-                    f"YouTubeConnector and will NOT be applied."
+                    f"[SourceHunterAgent] Filter '{key}'={value!r} "
+                    f"for mission '{mission_focus}' on '{platform}' is NOT "
+                    f"supported by YouTubeConnector and will NOT be applied."
                 )
 
         return translated
@@ -119,10 +148,38 @@ class SourceHunterAgent:
             metric_schema_version=item.get("metric_schema_version"),
         )
 
-    async def hunt(self, missions: list[DiscoveryMission]) -> SourceHunterResult:
+    async def hunt(
+        self,
+        missions: list[DiscoveryMission],
+        db: Optional[Session] = None,
+    ) -> SourceHunterResult:
+        job: Optional[DiscoveryJob] = None
+
+        # Phase 3.5 persistence lifecycle.
+        # db=None preserves the original standalone execution path.
+        if db is not None:
+            job = DiscoveryJob(
+                status="pending",
+                attempts=0,
+                result_count=0,
+            )
+            db.add(job)
+            db.flush()
+
+            job.status = "running"
+            job.attempts = 1
+            job.started_at = datetime.now(timezone.utc)
+            db.commit()
+
         all_clips: list[RawClip] = []
         seen_ids: set[str] = set()
         provenance: dict[str, list[dict]] = {}
+
+        # Error tracking is at EXECUTED QUERY level.
+        # Unsupported platforms / empty strategies are not query failures.
+        executed_queries = 0
+        failed_queries = 0
+        last_error: Optional[str] = None
 
         for mission in missions:
             for strategy in mission.platform_strategies:
@@ -137,6 +194,7 @@ class SourceHunterAgent:
                     continue
 
                 queries = self._resolve_queries(strategy)
+
                 if not queries:
                     self.logger.warning(
                         f"[SourceHunterAgent] Skipping strategy for platform "
@@ -146,30 +204,79 @@ class SourceHunterAgent:
                     continue
 
                 translated_filters = self._translate_filters(
-                    strategy.filters or {}, mission.mission_focus, platform
+                    strategy.filters or {},
+                    mission.mission_focus,
+                    platform,
                 )
 
                 for query in queries:
+                    executed_queries += 1
+
                     try:
-                        results = await self.discovery_engine.discover_from_strategy(
-                            query, translated_filters, platform=platform
+                        results = (
+                            await self.discovery_engine.discover_from_strategy(
+                                query,
+                                translated_filters,
+                                platform=platform,
+                            )
                         )
                     except Exception as e:
+                        failed_queries += 1
+                        last_error = str(e)
+
                         self.logger.error(
-                            f"[SourceHunterAgent] discover_from_strategy failed for "
-                            f"query '{query}' on '{platform}': {e}"
+                            f"[SourceHunterAgent] "
+                            f"discover_from_strategy failed for query "
+                            f"'{query}' on '{platform}': {e}"
                         )
                         continue
 
                     for item in results:
                         clip = self._map_to_raw_clip(item, platform)
+
                         if not clip.id:
                             continue
-                        record = {"query": query, "platform": platform, "mission_focus": mission.mission_focus}
-                        provenance.setdefault(clip.id, []).append(record)
+
+                        record = {
+                            "query": query,
+                            "platform": platform,
+                            "mission_focus": mission.mission_focus,
+                        }
+
+                        provenance.setdefault(
+                            clip.id,
+                            [],
+                        ).append(record)
+
                         if clip.id not in seen_ids:
                             seen_ids.add(clip.id)
                             all_clips.append(clip)
 
-        self.logger.info(f"[SourceHunterAgent] hunt complete: {len(all_clips)} unique clips")
-        return SourceHunterResult(clips=all_clips, provenance=provenance)
+        # Phase 3.5 completion/error persistence.
+        #
+        # No executable queries is not considered a connector failure.
+        # One or more failures with at least one success => completed.
+        # All executed queries failed => failed.
+        if job is not None:
+            job.attempts = 1
+            job.result_count = len(all_clips)
+            job.completed_at = datetime.now(timezone.utc)
+
+            if executed_queries > 0 and failed_queries == executed_queries:
+                job.status = "failed"
+                job.last_error = last_error
+            else:
+                job.status = "completed"
+                job.last_error = last_error
+
+            db.commit()
+
+        self.logger.info(
+            f"[SourceHunterAgent] hunt complete: "
+            f"{len(all_clips)} unique clips"
+        )
+
+        return SourceHunterResult(
+            clips=all_clips,
+            provenance=provenance,
+        )
