@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from backend.core.config import settings
 from backend.core.logger import log
 from backend.models.schemas import TaskRequest, TaskStatusResponse
-from backend.models.db import get_db
+from backend.models.db import Goal as GoalModel, get_db
 from backend.services.worker_client import worker_client
 
 router = APIRouter(prefix="/os", tags=["Autonomous OS"])
@@ -189,15 +189,66 @@ async def submit_autonomous_os_goal(
 
 
 @router.get("/task/status/{task_id}", response_model=TaskStatusResponse)
-async def get_task_status(task_id: str):
-    """Get status of an OS task."""
+async def get_task_status(
+    task_id: str,
+    db: Session = Depends(get_db),
+):
+    """Get status of an OS task, falling back to persisted Goal state."""
     try:
         return await worker_client.get_task_status(task_id)
-    except HTTPException:
-        raise
+
+    except HTTPException as e:
+        if e.status_code != 503:
+            raise
+
+        log.warning(
+            f"[OS] Worker unavailable for task_status task_id={task_id}; "
+            "falling back to local DB"
+        )
+
     except Exception as e:
-        log.error(f"[OS] task_status error: {e}")
+        log.error(f"[OS] task_status worker error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    try:
+        goal_id = int(task_id)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Local task not found: {task_id}",
+        )
+
+    goal = db.get(GoalModel, goal_id)
+    if goal is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Local task not found: {task_id}",
+        )
+
+    failed_tasks = [
+        task
+        for task in goal.tasks
+        if task.status == "failed"
+    ]
+
+    error = None
+    result = None
+
+    if failed_tasks:
+        latest_failed = failed_tasks[-1]
+        error_payload = latest_failed.result or {}
+        if isinstance(error_payload, dict):
+            error = error_payload.get("error")
+        if error is None:
+            error = f"Task {latest_failed.id} failed"
+        result = latest_failed.result
+
+    return TaskStatusResponse(
+        task_id=str(goal.id),
+        status=goal.status,
+        result=result,
+        error=error,
+    )
 
 
 @router.post("/execute", response_model=OSResponse)

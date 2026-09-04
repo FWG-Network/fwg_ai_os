@@ -185,7 +185,6 @@ def test_os_agent_run_llm(monkeypatch):
     tasks = [
         SimpleNamespace(tool_name="llm", description="analyze AI video trends")
     ]
-
     monkeypatch.setattr(os_endpoint, "_get_planner", lambda: FakePlanner())
     monkeypatch.setattr(os_endpoint, "_flatten_tasks", lambda staged: tasks)
 
@@ -202,3 +201,51 @@ def test_os_agent_run_llm(monkeypatch):
     assert data["result"] == [
         {"tool": "llm", "desc": "analyze AI video trends"}
     ]
+
+
+def test_os_task_status_falls_back_to_goal_db(monkeypatch):
+    from fastapi import HTTPException
+    from backend.api.endpoints import os as os_endpoint
+    from backend.models.db import Goal as GoalModel, SessionLocal
+
+    async def worker_unavailable(_task_id: str):
+        raise HTTPException(
+            status_code=503,
+            detail="Worker unavailable",
+        )
+
+    monkeypatch.setattr(
+        os_endpoint.worker_client,
+        "get_task_status",
+        worker_unavailable,
+    )
+
+    db = SessionLocal()
+    goal = GoalModel(
+        user_id="test-task-status",
+        description="strict task status fallback",
+        status="completed",
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    goal_id = goal.id
+    db.close()
+
+    try:
+        response = client.get(f"/os/task/status/{goal_id}")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "task_id": str(goal_id),
+            "status": "completed",
+            "result": None,
+            "error": None,
+        }
+    finally:
+        cleanup = SessionLocal()
+        persisted = cleanup.get(GoalModel, goal_id)
+        if persisted is not None:
+            cleanup.delete(persisted)
+        cleanup.commit()
+        cleanup.close()
