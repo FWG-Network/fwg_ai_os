@@ -418,3 +418,76 @@ def test_os_memory_query_uses_existing_vector_memory_singleton(monkeypatch):
 
     assert res.status_code == 200
     assert res.json()["result"]["results"] == sentinel
+
+
+def test_os_reset_flushes_discovery_cache_db2_and_resets_singletons(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+
+    class FakeRedis:
+        def __init__(self):
+            self.flushdb_calls = 0
+
+        def flushdb(self):
+            self.flushdb_calls += 1
+
+    fake_redis = FakeRedis()
+    captured = {}
+
+    class FakeRedisLib:
+        @staticmethod
+        def from_url(url, **kwargs):
+            captured["url"] = url
+            captured["kwargs"] = kwargs
+            return fake_redis
+
+    monkeypatch.setitem(__import__("sys").modules, "redis", FakeRedisLib)
+
+    sentinel_planner = object()
+    sentinel_discovery = object()
+    sentinel_ranking = object()
+
+    os_endpoint._task_planner = sentinel_planner
+    os_endpoint._discovery_engine = sentinel_discovery
+    os_endpoint._ranking_engine = sentinel_ranking
+
+    res = client.post("/os/reset")
+
+    assert res.status_code == 200
+
+    data = res.json()
+    assert data["status"] == "reset_complete"
+    assert "discovery_cache_cleared (db=2)" in data["result"]["actions"]
+    assert "service_singletons_reset" in data["result"]["actions"]
+    assert fake_redis.flushdb_calls == 1
+    assert captured["kwargs"]["db"] == 2
+    assert captured["kwargs"]["socket_timeout"] == 2
+    assert os_endpoint._task_planner is None
+    assert os_endpoint._discovery_engine is None
+    assert os_endpoint._ranking_engine is None
+
+
+def test_os_reset_reports_redis_unavailable_and_still_resets_singletons(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+
+    class FakeRedisLib:
+        @staticmethod
+        def from_url(url, **kwargs):
+            raise RuntimeError("redis unavailable")
+
+    monkeypatch.setitem(__import__("sys").modules, "redis", FakeRedisLib)
+
+    os_endpoint._task_planner = object()
+    os_endpoint._discovery_engine = object()
+    os_endpoint._ranking_engine = object()
+
+    res = client.post("/os/reset")
+
+    assert res.status_code == 200
+
+    data = res.json()
+    assert data["status"] == "reset_complete"
+    assert "redis_unavailable_skipped" in data["result"]["actions"]
+    assert "service_singletons_reset" in data["result"]["actions"]
+    assert os_endpoint._task_planner is None
+    assert os_endpoint._discovery_engine is None
+    assert os_endpoint._ranking_engine is None
