@@ -66,55 +66,138 @@ class DiscoveryEngine:
         limit_per_query: int = 5,
     ) -> List[Dict]:
         """
-        Direct YouTube search with topic + modifiers.
-        Redis cached for 1 hour.
+        Real resilient discovery.
+
+        Primary:
+            YouTube via existing connector.
+
+        Fallback:
+            TikTok via existing Apify connector when YouTube produces
+            no candidates.
+
+        No mock/demo data is ever returned.
         """
         cache_key = f"discovery:{topic}:{limit_per_query}"
-        r         = self._get_redis()
+        r = self._get_redis()
 
         # ── Cache read ───────────────────────────────────────────────
         if r:
             try:
                 cached = r.get(cache_key)
                 if cached:
-                    log.info(f"[DiscoveryEngine] Cache hit: '{topic}'")
+                    log.info(
+                        f"[DiscoveryEngine] Cache hit: '{topic}'"
+                    )
                     return json.loads(cached)
             except Exception as e:
-                log.warning(f"[DiscoveryEngine] Cache read failed: {e}")
+                log.warning(
+                    f"[DiscoveryEngine] Cache read failed: {e}"
+                )
 
-        # ── Search ───────────────────────────────────────────────────
-        queries       = self._build_queries(topic)
+        queries = self._build_queries(topic)
+
         all_candidates: List[Dict] = []
 
+        # ── Primary source: YouTube ─────────────────────────────────
         for query in queries:
             try:
                 results = await youtube_connector.search(
-                    query, limit=limit_per_query
+                    query,
+                    limit=limit_per_query,
                 )
-                all_candidates.extend(results)
-                log.info(f"[DiscoveryEngine] '{query}' → {len(results)} results")
-            except Exception as e:
-                log.warning(f"[DiscoveryEngine] Query '{query}' failed: {e}")
-                continue
 
-            await asyncio.sleep(0.5)   # rate limit between queries
+                for item in results:
+                    candidate = dict(item)
+                    candidate.setdefault(
+                        "_provenance",
+                        [],
+                    )
+                    candidate["_provenance"].append(
+                        {
+                            "query": query,
+                            "platform": "youtube",
+                        }
+                    )
+                    all_candidates.append(candidate)
+
+                log.info(
+                    f"[DiscoveryEngine] YouTube '{query}' "
+                    f"→ {len(results)} results"
+                )
+
+            except Exception as e:
+                log.warning(
+                    f"[DiscoveryEngine] YouTube query "
+                    f"'{query}' failed: {e}"
+                )
+
+            await asyncio.sleep(0.5)
+
+        # ── Real fallback: TikTok/Apify ─────────────────────────────
+        if not all_candidates:
+            fallback_query = topic
+
+            try:
+                results = await tiktok_connector.search(
+                    fallback_query,
+                    limit=limit_per_query,
+                )
+
+                for item in results:
+                    candidate = dict(item)
+                    candidate.setdefault(
+                        "_provenance",
+                        [],
+                    )
+                    candidate["_provenance"].append(
+                        {
+                            "query": fallback_query,
+                            "platform": "tiktok",
+                        }
+                    )
+                    all_candidates.append(candidate)
+
+                log.warning(
+                    "[DiscoveryEngine] YouTube returned no "
+                    "candidates; real TikTok fallback returned "
+                    f"{len(results)} results for '{fallback_query}'"
+                )
+
+            except Exception as e:
+                log.error(
+                    f"[DiscoveryEngine] TikTok fallback failed: {e}"
+                )
 
         # ── Deduplicate ──────────────────────────────────────────────
-        seen: set      = set()
+        seen: set = set()
         deduped: List[Dict] = []
-        for item in all_candidates:
-            if item["id"] not in seen:
-                seen.add(item["id"])
-                deduped.append(item)
 
-        log.info(f"[DiscoveryEngine] discover: {len(deduped)} unique results for '{topic}'")
+        for item in all_candidates:
+            item_id = item.get("id")
+
+            if not item_id or item_id in seen:
+                continue
+
+            seen.add(item_id)
+            deduped.append(item)
+
+        log.info(
+            f"[DiscoveryEngine] discover: "
+            f"{len(deduped)} unique results for '{topic}'"
+        )
 
         # ── Cache write ──────────────────────────────────────────────
         if r:
             try:
-                r.setex(cache_key, CACHE_TTL_SECONDS, json.dumps(deduped))
+                r.setex(
+                    cache_key,
+                    CACHE_TTL_SECONDS,
+                    json.dumps(deduped),
+                )
             except Exception as e:
-                log.warning(f"[DiscoveryEngine] Cache write failed: {e}")
+                log.warning(
+                    f"[DiscoveryEngine] Cache write failed: {e}"
+                )
 
         return deduped
 

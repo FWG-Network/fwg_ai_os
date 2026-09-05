@@ -5,6 +5,8 @@ from typing import Literal
 from backend.models.schemas import DiscoveryRequest
 from backend.models.db import get_db
 from backend.services.ranking_engine import ranking_engine_service
+from backend.services.intelligence_engine import intelligence_engine_service
+from backend.services.evaluation_engine import evaluation_engine_service
 from backend.core.logger import log
 
 router = APIRouter(prefix="/discovery", tags=["Discovery"])
@@ -35,8 +37,20 @@ async def run_discovery_pipeline(
             result = await discovery_engine_service.smart_discover(request.topic, db)
 
             # ✅ rank() is sync — NO await
+            candidates = result.get("trending_candidates", [])
+
+            enriched = intelligence_engine_service.analyze(
+                candidates,
+                editorial_intent={
+                    "topic": request.topic,
+                },
+            )
+            evaluated = evaluation_engine_service.evaluate(
+                enriched,
+            )
+
             ranked = ranking_engine_service.rank(
-                result.get("trending_candidates", []),
+                evaluated,
                 user_id=request.user_id,
             )
 
@@ -64,8 +78,18 @@ async def run_discovery_pipeline(
         candidates = []
 
     # ✅ rank() is sync — NO await
-    ranked = ranking_engine_service.rank(
+    enriched = intelligence_engine_service.analyze(
         candidates,
+        editorial_intent={
+            "topic": request.topic,
+        },
+    )
+    evaluated = evaluation_engine_service.evaluate(
+        enriched,
+    )
+
+    ranked = ranking_engine_service.rank(
+        evaluated,
         user_id=request.user_id,
     )
 

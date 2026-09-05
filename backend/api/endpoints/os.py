@@ -16,6 +16,8 @@ from backend.core.logger import log
 from backend.models.schemas import TaskRequest, TaskStatusResponse
 from backend.models.db import Goal as GoalModel, get_db
 from backend.services.worker_client import worker_client
+from backend.services.intelligence_engine import intelligence_engine_service
+from backend.services.evaluation_engine import evaluation_engine_service
 
 router = APIRouter(prefix="/os", tags=["Autonomous OS"])
 
@@ -360,8 +362,22 @@ async def run_agent(req: AgentRunRequest):
         if req.agent == "discover":
             topic      = req.input.get("topic", "AI trends")
             candidates = await _get_discovery().discover(topic)
+
+            enriched = intelligence_engine_service.analyze(
+                candidates,
+                editorial_intent={
+                    "topic": topic,
+                },
+            )
+            evaluated = evaluation_engine_service.evaluate(
+                enriched,
+            )
+
             # ✅ rank() is sync
-            ranked     = _get_ranking().rank(candidates, user_id=req.user_id)
+            ranked = _get_ranking().rank(
+                evaluated,
+                user_id=req.user_id,
+            )
             return OSResponse(
                 status="completed",
                 result={"ranked_content": ranked, "total": len(ranked)},

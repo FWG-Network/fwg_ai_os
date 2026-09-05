@@ -106,39 +106,56 @@ def test_os_reset():
     print(f"✅ /os/reset → {data['result']['actions']}")
 
 
-def test_os_agent_run_discover_strict(monkeypatch):
-    from types import SimpleNamespace
-    from backend.api.endpoints import os as os_endpoint
 
-    class FakeDiscovery:
-        async def discover(self, topic):
-            assert topic == "AI trends"
-            return [{"title": "clip-1"}]
-
-    class FakeRanking:
-        def rank(self, candidates, user_id=None):
-            assert candidates == [{"title": "clip-1"}]
-            assert user_id == "test_user"
-            return [{"title": "clip-1", "score": 0.99}]
-
-    monkeypatch.setattr(os_endpoint, "_get_discovery", lambda: FakeDiscovery())
-    monkeypatch.setattr(os_endpoint, "_get_ranking", lambda: FakeRanking())
-
-    res = client.post("/os/agent/run", json={
-        "agent": "discover",
-        "input": {"topic": "AI trends"},
-        "user_id": "test_user",
-    })
+def test_os_agent_run_discover_real_pipeline():
+    """Real runtime verification: Discovery -> Intelligence -> Evaluation -> Ranking."""
+    res = client.post(
+        "/os/agent/run",
+        json={
+            "agent": "discover",
+            "input": {"topic": "AI video trends"},
+            "user_id": "test_user",
+        },
+    )
 
     assert res.status_code == 200
+
     data = res.json()
+
     assert data["status"] == "completed"
     assert data["agent"] == "discover+rank"
-    assert data["result"]["total"] == 1
-    assert data["result"]["ranked_content"] == [
-        {"title": "clip-1", "score": 0.99}
-    ]
+    assert isinstance(data["result"]["ranked_content"], list)
+    assert data["result"]["total"] == len(
+        data["result"]["ranked_content"]
+    )
 
+    ranked = data["result"]["ranked_content"]
+
+    # Real discovery is required to produce at least one candidate.
+    assert ranked, "Real discovery returned no candidates"
+
+    first = ranked[0]
+
+    # Intelligence + Evaluation must survive into final ranking output.
+    assert "intelligence" in first
+    assert "evaluation" in first
+    assert "_score_debug" in first
+
+    intelligence = first["intelligence"]
+    evaluation = first["evaluation"]
+
+    assert "editorial_relevance" in intelligence
+    assert "viral_potential" in intelligence
+    assert "content_quality" in intelligence
+    assert "evidence_confidence" in intelligence
+
+    assert evaluation["decision"] in {
+        "accept",
+        "reject",
+    }
+
+    # Ranking must have consumed the intelligence-derived semantic score.
+    assert "semantic" in first["_score_debug"]
 
 def test_os_agent_run_trend(monkeypatch):
     from types import SimpleNamespace
