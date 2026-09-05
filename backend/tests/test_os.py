@@ -491,3 +491,139 @@ def test_os_reset_reports_redis_unavailable_and_still_resets_singletons(monkeypa
     assert os_endpoint._task_planner is None
     assert os_endpoint._discovery_engine is None
     assert os_endpoint._ranking_engine is None
+
+
+def test_os_status_all_services_online(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+
+    monkeypatch.setattr(os_endpoint, "_ping_qdrant", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_db", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_redis", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_worker", lambda: "online")
+
+    res = client.get("/os/status")
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "operational"
+    assert data["services"]["qdrant"] == "online"
+    assert data["services"]["database"] == "online"
+    assert data["services"]["redis"] == "online"
+    assert data["services"]["celery_worker"] == "online"
+
+
+def test_os_status_optional_service_offline_is_degraded(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+
+    monkeypatch.setattr(os_endpoint, "_ping_qdrant", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_db", lambda: "online")
+    monkeypatch.setattr(
+        os_endpoint,
+        "_ping_redis",
+        lambda: "offline (personalization degraded)",
+    )
+    monkeypatch.setattr(
+        os_endpoint,
+        "_ping_worker",
+        lambda: "offline (async tasks unavailable)",
+    )
+
+    res = client.get("/os/status")
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "degraded"
+    assert "offline" in data["services"]["redis"]
+    assert "offline" in data["services"]["celery_worker"]
+
+
+def test_os_status_degraded_worker_is_degraded(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+
+    monkeypatch.setattr(os_endpoint, "_ping_qdrant", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_db", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_redis", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_worker", lambda: "degraded")
+
+    res = client.get("/os/status")
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "degraded"
+    assert data["services"]["celery_worker"] == "degraded"
+
+
+def test_os_status_critical_service_offline_is_critical(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+
+    monkeypatch.setattr(os_endpoint, "_ping_qdrant", lambda: "offline")
+    monkeypatch.setattr(os_endpoint, "_ping_db", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_redis", lambda: "online")
+    monkeypatch.setattr(os_endpoint, "_ping_worker", lambda: "online")
+
+    res = client.get("/os/status")
+
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "critical"
+    assert data["services"]["qdrant"] == "offline"
+    assert data["services"]["database"] == "online"
+
+
+def test_os_plan_strict(monkeypatch):
+    from types import SimpleNamespace
+    from backend.api.endpoints import os as os_endpoint
+
+    calls = {}
+
+    class FakePlanner:
+        def create_plan(self, command, user_id):
+            calls["command"] = command
+            calls["user_id"] = user_id
+            return [
+                [
+                    SimpleNamespace(
+                        description="Search trending AI videos",
+                        tool_name="youtube_search",
+                    ),
+                    SimpleNamespace(
+                        description="Rank discovered videos",
+                        tool_name="ranking_engine",
+                    ),
+                ],
+                [
+                    SimpleNamespace(
+                        description="Prepare final shortlist",
+                        tool_name="content_selector",
+                    ),
+                ],
+            ]
+
+    monkeypatch.setattr(
+        os_endpoint,
+        "_get_planner",
+        lambda: FakePlanner(),
+    )
+
+    res = client.post(
+        "/os/plan",
+        json={
+            "command": "find trending AI videos",
+            "user_id": "test_user",
+        },
+    )
+
+    assert res.status_code == 200
+
+    data = res.json()
+
+    assert data["status"] == "planned"
+    assert data["plan"] == [
+        "Search trending AI videos",
+        "Rank discovered videos",
+        "Prepare final shortlist",
+    ]
+    assert data["agent"] == "youtube_search"
+
+    assert calls["command"] == "find trending AI videos"
+    assert calls["user_id"] == "test_user"

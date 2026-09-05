@@ -446,9 +446,15 @@ async def system_status():
         "hf_token":      "configured" if getattr(settings, "HF_TOKEN", "")     else "not set",
     }
     critical_ok = all("online" in services[s] for s in ["qdrant", "database"])
-    any_offline = any("offline" in v for v in services.values())
-    overall     = ("operational" if (critical_ok and not any_offline)
-                   else ("degraded" if critical_ok else "critical"))
+    any_degraded = any(
+        value == "degraded" or "offline" in value
+        for value in services.values()
+    )
+    overall = (
+        "operational"
+        if critical_ok and not any_degraded
+        else ("degraded" if critical_ok else "critical")
+    )
 
     log.info(f"[OS] status: {overall}")
     return {
