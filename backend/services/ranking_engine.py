@@ -43,14 +43,30 @@ class RankingEngine:
         item:    dict,
         user_id: Optional[str],
     ) -> dict[str, float]:
-        views    = item.get("views",         1000)
-        likes    = item.get("likes",          100)
-        age_days = item.get("age_days",        10)
+        views    = item.get("views")
+        likes    = item.get("likes")
+        age_days = item.get("age_days")
         semantic = item.get("semantic_score", 0.8)
 
-        pop   = min(math_log(views + 1) / 10.0, 1.0)
-        eng   = min(likes / views, 1.0) if views > 0 else 0.0
-        fresh = max(0.0, 1.0 - age_days / 365.0)
+        pop = (
+            min(math_log(float(views) + 1.0) / 10.0, 1.0)
+            if isinstance(views, (int, float)) and views >= 0
+            else 0.0
+        )
+        eng = (
+            min(float(likes) / float(views), 1.0)
+            if (
+                isinstance(likes, (int, float))
+                and isinstance(views, (int, float))
+                and views > 0
+            )
+            else 0.0
+        )
+        fresh = (
+            max(0.0, 1.0 - float(age_days) / 365.0)
+            if isinstance(age_days, (int, float)) and age_days >= 0
+            else 0.0
+        )
 
         # ✅ Fix: try/except — personalization never crashes ranking
         personal = 0.0
@@ -65,7 +81,7 @@ class RankingEngine:
                 log.warning(f"[Ranking] Personalization skipped: {e}")
 
         return {
-            "semantic":        semantic,
+            "semantic":        float(semantic or 0.0),
             "popularity":      pop,
             "engagement":      eng,
             "freshness":       fresh,
