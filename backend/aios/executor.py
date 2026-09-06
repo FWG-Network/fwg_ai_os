@@ -85,7 +85,7 @@ class Executor:
         """
         Route task to correct tool.
         Uses task.tool_name + task.tool_params.
-        
+
         resolved_inputs: optional dict of {input_name: value} from dependency resolution.
         """
         tool   = task.tool_name or "llm_agent"
@@ -120,7 +120,7 @@ class Executor:
             elif tool == "trend_analyzer":
                 from backend.services.discovery_engine import discovery_engine_service
                 from backend.services.ranking_engine import ranking_engine_service
-                
+
                 # ✅ NEW: Support propagated input from Stage 1
                 if "candidates" in resolved_inputs:
                     candidates = resolved_inputs["candidates"]
@@ -128,7 +128,7 @@ class Executor:
                 else:
                     keyword    = params.get("theme_keyword", task.description)
                     candidates = await discovery_engine_service.discover(keyword)
-                
+
                 ranked = ranking_engine_service.rank(candidates, user_id=user_id)
                 return {
                     "tool":    "trend_analyzer",
