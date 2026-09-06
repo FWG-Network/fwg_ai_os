@@ -102,6 +102,13 @@ class AutonomousLoop:
                 )
                 db.commit()
 
+                if any(task.status == "failed" for task in stage_tasks):
+                    log.warning(
+                        f"[AIOS] Stage {stage_idx + 1} failed; "
+                        "stopping later stage execution"
+                    )
+                    break
+
                 for task in stage_tasks:
                     task_params = task.tool_params or {}
                     if "execution_key" in task_params:

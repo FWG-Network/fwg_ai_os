@@ -346,3 +346,128 @@ def test_non_dict_input_from_is_malformed_dependency():
         "dependency": "",
         "expected_path": "",
     }
+
+
+@pytest.mark.asyncio
+async def test_failed_stage_stops_later_stages_and_reflection_sets_goal_status(monkeypatch):
+    from backend.aios.executor import executor_service
+    from backend.aios.reflection import reflection_service
+    from backend.aios.task_planner import task_planner_service
+    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+
+    loop = AutonomousLoop()
+    db = SessionLocal()
+    stage_calls = []
+    reflection_calls = []
+
+    def plan(_description, goal_id):
+        return [
+            [TaskModel(
+                description="stage one",
+                goal_id=goal_id,
+                tool_name="trend_scanner",
+            )],
+            [TaskModel(
+                description="stage two",
+                goal_id=goal_id,
+                tool_name="trend_analyzer",
+            )],
+        ]
+
+    async def fail_stage_one(tasks, db, user_id, execution_context=None):
+        stage_calls.append(tasks[0].tool_name)
+        tasks[0].status = "failed"
+        tasks[0].result = {"error": "stage one failed"}
+
+    original_reflection = reflection_service.evaluate
+
+    def reflection_spy(goal):
+        reflection_calls.append(goal.id)
+        return original_reflection(goal)
+
+    monkeypatch.setattr(task_planner_service, "create_plan", plan)
+    monkeypatch.setattr(
+        executor_service,
+        "execute_task_group",
+        fail_stage_one,
+    )
+    monkeypatch.setattr(reflection_service, "evaluate", reflection_spy)
+
+    try:
+        goal = await loop.run(
+            goal_description="strict stage failure stop",
+            user_id="test-user",
+            db=db,
+        )
+
+        assert stage_calls == ["trend_scanner"]
+        assert reflection_calls == [goal.id]
+        assert goal.status == "failed"
+        assert goal.tasks[0].status == "failed"
+        assert goal.tasks[0].result == {"error": "stage one failed"}
+        assert goal.tasks[1].status == "pending"
+    finally:
+        persisted = db.get(GoalModel, goal.id)
+        if persisted is not None:
+            for task in persisted.tasks:
+                db.delete(task)
+            db.delete(persisted)
+        db.commit()
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_successful_stage_allows_next_stage_execution(monkeypatch):
+    from backend.aios.executor import executor_service
+    from backend.aios.task_planner import task_planner_service
+    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+
+    loop = AutonomousLoop()
+    db = SessionLocal()
+    stage_calls = []
+
+    def plan(_description, goal_id):
+        return [
+            [TaskModel(
+                description="stage one",
+                goal_id=goal_id,
+                tool_name="trend_scanner",
+            )],
+            [TaskModel(
+                description="stage two",
+                goal_id=goal_id,
+                tool_name="trend_analyzer",
+            )],
+        ]
+
+    async def complete_stage(tasks, db, user_id, execution_context=None):
+        stage_calls.append(tasks[0].tool_name)
+        for task in tasks:
+            task.status = "completed"
+            task.result = {"output": f"stage-{task.id}"}
+
+    monkeypatch.setattr(task_planner_service, "create_plan", plan)
+    monkeypatch.setattr(
+        executor_service,
+        "execute_task_group",
+        complete_stage,
+    )
+
+    try:
+        goal = await loop.run(
+            goal_description="successful stage continuation",
+            user_id="test-user",
+            db=db,
+        )
+
+        assert stage_calls == ["trend_scanner", "trend_analyzer"]
+        assert goal.status == "completed"
+        assert all(task.status == "completed" for task in goal.tasks)
+    finally:
+        persisted = db.get(GoalModel, goal.id)
+        if persisted is not None:
+            for task in persisted.tasks:
+                db.delete(task)
+            db.delete(persisted)
+        db.commit()
+        db.close()
