@@ -39,18 +39,31 @@ class Executor:
         tasks:   List[TaskModel],
         db:      Session,
         user_id: str = "aios_system",
+        execution_context: dict = None,
     ) -> None:
-        """Run all tasks in a stage concurrently."""
+        """Run all eligible tasks in a stage concurrently."""
         if not tasks:
             return
 
-        coroutines = [
-            self.execute_task(task, db, user_id)
-            for task in tasks
-        ]
-        results = await asyncio.gather(*coroutines, return_exceptions=True)
+        execution_context = execution_context or {}
 
-        for task, result in zip(tasks, results):
+        coroutines = [
+            self.execute_task(
+                task,
+                db,
+                user_id,
+                execution_context.get(task.id),
+            )
+            for task in tasks
+            if task.status != "failed"
+        ]
+        executable_tasks = [task for task in tasks if task.status != "failed"]
+        results = await asyncio.gather(
+            *coroutines,
+            return_exceptions=True,
+        )
+
+        for task, result in zip(executable_tasks, results):
             if isinstance(result, Exception):
                 task.status = "failed"
                 task.result = {"error": str(result)}
@@ -67,14 +80,18 @@ class Executor:
         task:    TaskModel,
         db:      Session,
         user_id: str = "aios_system",
+        resolved_inputs: dict = None,
     ) -> Any:
         """
         Route task to correct tool.
         Uses task.tool_name + task.tool_params.
+        
+        resolved_inputs: optional dict of {input_name: value} from dependency resolution.
         """
         tool   = task.tool_name or "llm_agent"
         # ✅ Fix: use tool_params from task_planner
         params = task.tool_params or {}
+        resolved_inputs = resolved_inputs or {}
 
         log.info(
             f"[Executor] Task {task.id} "
@@ -102,9 +119,16 @@ class Executor:
             # ── trend_analyzer ────────────────────────────────────────
             elif tool == "trend_analyzer":
                 from backend.services.discovery_engine import discovery_engine_service
-                keyword    = params.get("theme_keyword", task.description)
-                candidates = await discovery_engine_service.discover(keyword)
                 from backend.services.ranking_engine import ranking_engine_service
+                
+                # ✅ NEW: Support propagated input from Stage 1
+                if "candidates" in resolved_inputs:
+                    candidates = resolved_inputs["candidates"]
+                    log.info(f"[Executor] Task {task.id} using propagated candidates from Stage 1")
+                else:
+                    keyword    = params.get("theme_keyword", task.description)
+                    candidates = await discovery_engine_service.discover(keyword)
+                
                 ranked = ranking_engine_service.rank(candidates, user_id=user_id)
                 return {
                     "tool":    "trend_analyzer",

@@ -39,7 +39,10 @@ class TaskPlanner:
                     description=f"Trend scan on YouTube for '{keyword}'.",
                     goal_id=goal_id,
                     tool_name="trend_scanner",
-                    tool_params={"theme_keyword": keyword},   # ✅ ថ្មី
+                        tool_params={
+                            "theme_keyword": keyword,
+                            "execution_key": "trend_scan",  # ✅ NEW: Producer contract
+                        },
                 )
             ],
             [   # Stage 2 — Analysis
@@ -47,6 +50,13 @@ class TaskPlanner:
                     description="Calculate trend velocity and identify emerging creators.",
                     goal_id=goal_id,
                     tool_name="trend_analyzer",
+                        tool_params={
+                            "input_from": {
+                                "execution_key": "trend_scan",
+                                "result_path": "videos",
+                                "input_name": "candidates",
+                            }
+                        },  # ✅ NEW: Consumer contract
                 )
             ],
             [   # Stage 3 — Synthesis

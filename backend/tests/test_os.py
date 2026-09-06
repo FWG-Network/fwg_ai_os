@@ -79,6 +79,110 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
     assert data["status"] == "completed"
 
 
+def test_os_submit_goal_local_execution_contract(monkeypatch):
+    from fastapi import HTTPException
+    from backend.api.endpoints import os as os_endpoint
+    from backend.aios.executor import executor_service
+    from backend.aios.reflection import reflection_service
+    from backend.aios.task_planner import task_planner_service
+    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+
+    calls = {
+        "worker": 0,
+        "planner": 0,
+        "executor": 0,
+        "reflection": 0,
+    }
+
+    async def worker_unavailable(_task):
+        calls["worker"] += 1
+        raise HTTPException(
+            status_code=503,
+            detail="Worker unavailable",
+        )
+
+    def local_plan(goal_description, goal_id):
+        calls["planner"] += 1
+        assert goal_description == "local execution contract"
+        return [[
+            TaskModel(
+                description="Run deterministic local ranking",
+                goal_id=goal_id,
+                tool_name="ranking_engine",
+                tool_params={"candidates": []},
+            )
+        ]]
+
+    original_execute_task = executor_service.execute_task
+    original_reflection = reflection_service.evaluate
+
+    async def execute_task_spy(
+        task,
+        db,
+        user_id="aios_system",
+        resolved_inputs=None,
+    ):
+        calls["executor"] += 1
+        return await original_execute_task(
+            task,
+            db,
+            user_id,
+            resolved_inputs,
+        )
+
+    def reflection_spy(goal):
+        calls["reflection"] += 1
+        return original_reflection(goal)
+
+    monkeypatch.setattr(
+        os_endpoint.worker_client,
+        "submit_task",
+        worker_unavailable,
+    )
+    monkeypatch.setattr(task_planner_service, "create_plan", local_plan)
+    monkeypatch.setattr(executor_service, "execute_task", execute_task_spy)
+    monkeypatch.setattr(reflection_service, "evaluate", reflection_spy)
+
+    response = client.post(
+        "/os/submit_goal",
+        json={
+            "goal": "local execution contract",
+            "user_id": "test-user",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert calls == {
+        "worker": 1,
+        "planner": 1,
+        "executor": 1,
+        "reflection": 1,
+    }
+
+    goal_id = int(data["task_id"])
+    db = SessionLocal()
+    try:
+        goal = db.get(GoalModel, goal_id)
+        assert goal is not None
+        assert goal.status == "completed"
+        assert len(goal.tasks) == 1
+        assert goal.tasks[0].status == "completed"
+        assert goal.tasks[0].result == {
+            "tool": "ranking_engine",
+            "ranked": [],
+        }
+    finally:
+        goal = db.get(GoalModel, goal_id)
+        if goal is not None:
+            for task in goal.tasks:
+                db.delete(task)
+            db.delete(goal)
+        db.commit()
+        db.close()
+
+
 def test_os_agent_run_discover():
     res = client.post("/os/agent/run", json={
         "agent": "discover",

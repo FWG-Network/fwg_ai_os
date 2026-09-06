@@ -3,6 +3,7 @@ backend/aios/autonomous_loop.py
 Autonomous OS Loop — Plan → Execute (staged) → Reflect.
 """
 import asyncio
+from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.models.db import Goal as GoalModel, Task as TaskModel
@@ -18,6 +19,8 @@ class AutonomousLoop:
       Stage 1: Data collection (parallel)
       Stage 2: Analysis
       Stage 3: Synthesis/Report
+    
+    ✅ Result propagation: Stage N output -> Stage N+1 input via execution_key/input_from.
     """
 
     async def run(
@@ -75,19 +78,39 @@ class AutonomousLoop:
         log.info(f"[AIOS] [2/3] EXECUTING...")
         from backend.aios.executor import executor_service
 
+        execution_key_registry: Dict[str, TaskModel] = {}
+
         try:
             for stage_idx, stage_tasks in enumerate(staged_plan):
                 log.info(
                     f"[AIOS] Stage {stage_idx + 1}/{len(staged_plan)}: "
                     f"{len(stage_tasks)} tasks"
                 )
+                
+                resolved_inputs_map = self._resolve_stage_dependencies(
+                    stage_tasks,
+                    execution_key_registry,
+                    db,
+                )
+                
                 # ✅ Fix 3: async execute_task_group (parallel within stage)
                 await executor_service.execute_task_group(
                     tasks=stage_tasks,
                     db=db,
                     user_id=user_id,    # ✅ pass user_id for personalization
+                    execution_context=resolved_inputs_map,
                 )
                 db.commit()
+                
+                for task in stage_tasks:
+                    task_params = task.tool_params or {}
+                    if "execution_key" in task_params:
+                        key = task_params["execution_key"]
+                        if key in execution_key_registry and execution_key_registry[key].id != task.id:
+                            log.error(f"[AIOS] Duplicate execution_key '{key}' in goal {db_goal.id}")
+                            raise ValueError(f"Duplicate execution_key: {key}")
+                        execution_key_registry[key] = task
+                
                 log.info(f"[AIOS] Stage {stage_idx + 1} complete ✅")
 
         except Exception as e:
@@ -113,6 +136,127 @@ class AutonomousLoop:
         log.info(f"[AIOS] ✅ Goal complete. status={outcome}")
         return db_goal
 
+    # ── Dependency Resolution ────────────────────────────────────────
+    def _resolve_stage_dependencies(
+        self,
+        stage_tasks: list,
+        execution_key_registry: Dict[str, TaskModel],
+        db: Session,
+    ) -> Dict[int, Optional[Dict[str, Any]]]:
+        """
+        ✅ NEW: Resolve input_from dependencies for tasks in this stage.
+        
+        Returns: {task.id: {input_name: resolved_value}} for dependent tasks.
+        """
+        resolved_inputs = {}
+        
+        for task in stage_tasks:
+            task_params = task.tool_params or {}
+            input_from = task_params.get("input_from")
+            
+            if not input_from:
+                # Task has no dependencies; skip
+                continue
+            
+            log.info(f"[AIOS] Task {task.id} declares dependency: {input_from}")
+            
+            dependency_key = input_from.get("execution_key")
+            result_path = input_from.get("result_path")
+            input_name = input_from.get("input_name")
+            
+            # Validate dependency structure
+            if not all(
+                isinstance(value, str) and value
+                for value in (dependency_key, result_path, input_name)
+            ):
+                task.status = "failed"
+                task.result = {
+                    "error": "dependency_result_malformed",
+                    "dependency": dependency_key or "",
+                    "expected_path": result_path or "",
+                }
+                db.add(task)
+                log.error(f"[AIOS] Task {task.id} has malformed dependency: {input_from}")
+                continue
+            
+            # Find producer task
+            producer = execution_key_registry.get(dependency_key)
+            if not producer:
+                task.status = "failed"
+                task.result = {"error": "dependency_not_found", "dependency": dependency_key}
+                db.add(task)
+                log.error(f"[AIOS] Task {task.id} dependency not found: {dependency_key}")
+                continue
+            
+            # Verify producer completed
+            if producer.status != "completed":
+                task.status = "failed"
+                task.result = {"error": "dependency_failed", "dependency": dependency_key}
+                db.add(task)
+                log.error(f"[AIOS] Task {task.id} producer failed: {dependency_key} status={producer.status}")
+                continue
+            
+            # Verify producer has result
+            if producer.result is None:
+                task.status = "failed"
+                task.result = {"error": "dependency_result_missing", "dependency": dependency_key}
+                db.add(task)
+                log.error(f"[AIOS] Task {task.id} producer result missing: {dependency_key}")
+                continue
+            
+            # Resolve result_path
+            resolved_value = self._extract_result_path(
+                producer.result,
+                result_path,
+            )
+            if resolved_value is _MISSING:
+                task.status = "failed"
+                task.result = {
+                    "error": "dependency_result_malformed",
+                    "dependency": dependency_key,
+                    "expected_path": result_path,
+                }
+                db.add(task)
+                log.error(f"[AIOS] Task {task.id} result path not found: {result_path} in {producer.result}")
+                continue
+            
+            # ✅ Success: store resolved input
+            if task.id not in resolved_inputs:
+                resolved_inputs[task.id] = {}
+            resolved_inputs[task.id][input_name] = resolved_value
+            log.info(f"[AIOS] Task {task.id} resolved {input_name} from {dependency_key}.{result_path}")
+        
+        return resolved_inputs
+    
+    @staticmethod
+    def _extract_result_path(result: Any, path: str) -> Any:
+        """
+        ✅ NEW: Extract nested value from result using dot notation.
+        
+        Example: "videos" -> result["videos"]
+        Example: "metadata.title" -> result["metadata"]["title"]
+        """
+        keys = path.split(".")
+        current = result
+        
+        for key in keys:
+            if isinstance(current, dict):
+                if key not in current:
+                    return _MISSING
+                current = current[key]
+            elif isinstance(current, list) and key.isdigit():
+                index = int(key)
+                if index >= len(current):
+                    return _MISSING
+                current = current[index]
+            else:
+                return _MISSING
+        
+        return current
+
 
 # ── Global instance ───────────────────────────────────────────────────
 autonomous_loop_service = AutonomousLoop()
+
+
+_MISSING = object()
