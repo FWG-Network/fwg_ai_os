@@ -33,6 +33,52 @@ def make_task(
     )
 
 
+@pytest.mark.asyncio
+async def test_pending_task_executes_and_completes():
+    task = make_task(
+        1,
+        tool_name="ranking_engine",
+        tool_params={"candidates": []},
+    )
+
+    await executor_service.execute_task_group(
+        [task],
+        FakeDB(),
+        user_id="test-user",
+    )
+
+    assert task.status == "completed"
+    assert task.result == {"tool": "ranking_engine", "ranked": []}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["running", "completed", "failed"])
+async def test_non_pending_task_cannot_execute(status):
+    task = make_task(
+        2,
+        tool_name="ranking_engine",
+        tool_params={"candidates": []},
+        status=status,
+    )
+
+    await executor_service.execute_task_group(
+        [task],
+        FakeDB(),
+        user_id="test-user",
+    )
+
+    assert task.status == status
+
+    with pytest.raises(RuntimeError, match="not eligible for execution"):
+        await executor_service.execute_task(
+            task,
+            FakeDB(),
+            user_id="test-user",
+        )
+
+    assert task.status == status
+
+
 def test_stage1_result_is_propagated_to_stage2_executor(monkeypatch):
     """
     Contract:

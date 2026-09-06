@@ -55,9 +55,9 @@ class Executor:
                 execution_context.get(task.id),
             )
             for task in tasks
-            if task.status != "failed"
+            if task.status == "pending"
         ]
-        executable_tasks = [task for task in tasks if task.status != "failed"]
+        executable_tasks = [task for task in tasks if task.status == "pending"]
         results = await asyncio.gather(
             *coroutines,
             return_exceptions=True,
@@ -92,6 +92,11 @@ class Executor:
         # ✅ Fix: use tool_params from task_planner
         params = task.tool_params or {}
         resolved_inputs = resolved_inputs or {}
+
+        if task.status != "pending":
+            raise RuntimeError(
+                f"Task {task.id} is not eligible for execution: status={task.status}"
+            )
 
         log.info(
             f"[Executor] Task {task.id} "
