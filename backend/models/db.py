@@ -159,5 +159,28 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created/updated.")
 
+
+def mark_interrupted_goals_failed(db) -> int:
+    """Stop persisted goals from silently resuming after process interruption."""
+    stale_goals = db.query(Goal).filter(Goal.status == "running").all()
+    for goal in stale_goals:
+        goal.status = "failed"
+        db.add(
+            Task(
+                goal_id=goal.id,
+                description="AIOS process interruption recovery",
+                tool_name="lifecycle",
+                status="failed",
+                result={
+                    "error": "interrupted_goal_recovered",
+                    "phase": "restart",
+                    "message": "Goal was running when the process stopped.",
+                },
+            )
+        )
+    if stale_goals:
+        db.commit()
+    return len(stale_goals)
+
 # ✅ Dev: alias for compatibility
 create_db_and_tables = init_db

@@ -53,12 +53,17 @@ class AutonomousLoop:
         log.info(f"[AIOS] [1/3] PLANNING...")
         from backend.aios.task_planner import task_planner_service
 
-        # ✅ Fix 1: pass goal_id (2nd arg)
-        # ✅ Fix 2: returns List[List[TaskModel]] — staged!
-        staged_plan: list = task_planner_service.create_plan(
-            goal_description,
-            db_goal.id,
-        )
+        try:
+            # ✅ Fix 1: pass goal_id (2nd arg)
+            # ✅ Fix 2: returns List[List[TaskModel]] — staged!
+            staged_plan: list = task_planner_service.create_plan(
+                goal_description,
+                db_goal.id,
+            )
+        except Exception as e:
+            log.error(f"[AIOS] Planning failed: {e}")
+            self._persist_lifecycle_failure(db_goal, db, "planning", e)
+            return db_goal
 
         # Persist all tasks to DB
         all_tasks = []
@@ -134,14 +139,40 @@ class AutonomousLoop:
             from backend.aios.reflection import reflection_service
             outcome = reflection_service.evaluate(db_goal)
         except Exception as e:
-            log.warning(f"[AIOS] Reflection failed: {e} → defaulting to completed")
-            outcome = "completed"
+            log.error(f"[AIOS] Reflection failed: {e}")
+            self._persist_lifecycle_failure(db_goal, db, "reflection", e)
+            return db_goal
 
         db_goal.status = outcome
         db.commit()
 
         log.info(f"[AIOS] ✅ Goal complete. status={outcome}")
         return db_goal
+
+    @staticmethod
+    def _persist_lifecycle_failure(
+        db_goal: GoalModel,
+        db: Session,
+        phase: str,
+        error: Exception,
+    ) -> None:
+        """Persist lifecycle failures without adding a Goal schema field."""
+        db_goal.status = "failed"
+        db.add(
+            TaskModel(
+                goal_id=db_goal.id,
+                description=f"AIOS {phase} lifecycle failure",
+                tool_name="lifecycle",
+                status="failed",
+                result={
+                    "error": "lifecycle_failure",
+                    "phase": phase,
+                    "exception_type": type(error).__name__,
+                    "message": str(error),
+                },
+            )
+        )
+        db.commit()
 
     # ── Dependency Resolution ────────────────────────────────────────
     def _resolve_stage_dependencies(

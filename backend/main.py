@@ -4,6 +4,7 @@ from backend.api.router import api_router
 from backend.api.endpoints.os import router as os_router
 from backend.api.endpoints.nexus import router as nexus_router
 from backend.core.config import settings
+from backend.core.logger import log
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -22,6 +23,23 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(nexus_router, prefix="/api/v1")
 app.include_router(os_router)
+
+
+@app.on_event("startup")
+def recover_interrupted_goals() -> None:
+    from backend.models.db import SessionLocal, init_db, mark_interrupted_goals_failed
+
+    try:
+        init_db()
+        db = SessionLocal()
+        try:
+            recovered = mark_interrupted_goals_failed(db)
+            if recovered:
+                log.warning(f"[AIOS] Marked {recovered} interrupted goal(s) as failed")
+        finally:
+            db.close()
+    except Exception as e:
+        log.error(f"[AIOS] Startup recovery failed: {e}")
 
 
 @app.get("/")

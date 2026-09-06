@@ -417,6 +417,109 @@ async def test_failed_stage_stops_later_stages_and_reflection_sets_goal_status(m
 
 
 @pytest.mark.asyncio
+async def test_reflection_exception_fails_goal_and_persists_structured_result(monkeypatch):
+    from backend.aios.reflection import reflection_service
+    from backend.aios.task_planner import task_planner_service
+    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+
+    loop = AutonomousLoop()
+    db = SessionLocal()
+    goal = None
+
+    def plan(_description, goal_id):
+        return [[TaskModel(description="one task", goal_id=goal_id, tool_name="test")]]
+
+    async def complete_stage(tasks, db, user_id, execution_context=None):
+        tasks[0].status = "completed"
+        tasks[0].result = {"output": "ok"}
+
+    def fail_reflection(_goal):
+        raise RuntimeError("reflection unavailable")
+
+    monkeypatch.setattr(task_planner_service, "create_plan", plan)
+    monkeypatch.setattr(executor_service, "execute_task_group", complete_stage)
+    monkeypatch.setattr(reflection_service, "evaluate", fail_reflection)
+
+    try:
+        goal = await loop.run("reflection failure", "test-user", db)
+        persisted = db.get(GoalModel, goal.id)
+        failure = persisted.tasks[-1]
+        assert persisted.status == "failed"
+        assert failure.result == {
+            "error": "lifecycle_failure",
+            "phase": "reflection",
+            "exception_type": "RuntimeError",
+            "message": "reflection unavailable",
+        }
+        assert persisted.status != "completed"
+    finally:
+        if goal is not None:
+            persisted = db.get(GoalModel, goal.id)
+            for task in persisted.tasks:
+                db.delete(task)
+            db.delete(persisted)
+            db.commit()
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_planner_exception_fails_and_persists_goal(monkeypatch):
+    from backend.aios.task_planner import task_planner_service
+    from backend.models.db import Goal as GoalModel, SessionLocal
+
+    loop = AutonomousLoop()
+    db = SessionLocal()
+    goal = None
+
+    def fail_planner(_description, _goal_id):
+        raise ValueError("planner unavailable")
+
+    monkeypatch.setattr(task_planner_service, "create_plan", fail_planner)
+
+    try:
+        goal = await loop.run("planner failure", "test-user", db)
+        persisted = db.get(GoalModel, goal.id)
+        assert persisted.status == "failed"
+        assert persisted.tasks[0].result["phase"] == "planning"
+        assert persisted.tasks[0].result["message"] == "planner unavailable"
+    finally:
+        if goal is not None:
+            persisted = db.get(GoalModel, goal.id)
+            for task in persisted.tasks:
+                db.delete(task)
+            db.delete(persisted)
+            db.commit()
+        db.close()
+
+
+def test_stale_running_goal_is_marked_failed():
+    from backend.models.db import (
+        Goal as GoalModel,
+        SessionLocal,
+        mark_interrupted_goals_failed,
+    )
+
+    db = SessionLocal()
+    goal = GoalModel(description="stale goal", user_id="test-user", status="running")
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+
+    try:
+        assert mark_interrupted_goals_failed(db) == 1
+        persisted = db.get(GoalModel, goal.id)
+        assert persisted.status == "failed"
+        assert persisted.tasks[0].result["error"] == "interrupted_goal_recovered"
+    finally:
+        persisted = db.get(GoalModel, goal.id)
+        for task in persisted.tasks:
+            db.delete(task)
+        db.delete(persisted)
+        db.commit()
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_successful_stage_allows_next_stage_execution(monkeypatch):
     from backend.aios.executor import executor_service
     from backend.aios.task_planner import task_planner_service
