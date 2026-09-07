@@ -3,6 +3,7 @@ from typing import Optional
 from sqlalchemy import (
     String, Integer, Float,
     DateTime, ForeignKey, JSON, Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped,
@@ -70,6 +71,29 @@ class Goal(Base):
 
     def __repr__(self) -> str:
         return f"<Goal id={self.id} status={self.status}>"
+
+
+class AIOSIdempotencyRecord(Base):
+    __tablename__ = "aios_idempotency_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope",
+            "user_id",
+            "idempotency_key",
+            name="uq_aios_idempotency_scope_user_key",
+        ),
+    )
+
+    id:                 Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scope:              Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id:            Mapped[str] = mapped_column(String(100), nullable=False)
+    idempotency_key:    Mapped[str] = mapped_column(String(255), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status:             Mapped[str] = mapped_column(String(50), default="reserved", nullable=False)
+    goal_id:            Mapped[Optional[int]] = mapped_column(ForeignKey("goals.id"), nullable=True)
+    worker_task_id:     Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at:         Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+    completed_at:       Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 # ─── Task (task_planner.py) ───────────────────────────────────────────

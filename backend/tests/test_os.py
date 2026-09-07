@@ -31,7 +31,8 @@ def test_os_plan():
 def test_os_submit_goal():
     res = client.post("/os/submit_goal", json={
         "goal": "research AI trends",
-        "user_id": "test_user"
+        "user_id": "test_user",
+        "idempotency_key": "test-os-submit-goal",
     })
     assert res.status_code in [200, 500, 503]  # 503 = worker offline ok
     print(f"✅ /os/submit_goal → {res.status_code}")
@@ -71,6 +72,7 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
     res = client.post("/os/submit_goal", json={
         "goal": "research AI trends",
         "user_id": "test_user",
+        "idempotency_key": "test-os-submit-goal-fallback",
     })
 
     assert res.status_code == 200
@@ -148,6 +150,7 @@ def test_os_submit_goal_local_execution_contract(monkeypatch):
         json={
             "goal": "local execution contract",
             "user_id": "test-user",
+            "idempotency_key": "test-os-local-execution",
         },
     )
 
@@ -362,6 +365,7 @@ def test_os_task_status_falls_back_to_goal_db(monkeypatch):
             "status": "completed",
             "result": None,
             "error": None,
+            "idempotency_record_id": None,
         }
     finally:
         cleanup = SessionLocal()
@@ -412,6 +416,7 @@ def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
             "command": "fallback execute test",
             "user_id": "test-user",
             "async_mode": True,
+            "idempotency_key": "test-os-fallback-execute",
         },
     )
 

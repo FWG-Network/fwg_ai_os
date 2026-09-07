@@ -4,17 +4,25 @@ Autonomous OS endpoint — Fixed v4
 """
 
 import asyncio
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.core.config import settings
 from backend.core.logger import log
 from backend.models.schemas import TaskRequest, TaskStatusResponse
-from backend.models.db import Goal as GoalModel, get_db
+from backend.models.db import (
+    AIOSIdempotencyRecord,
+    Goal as GoalModel,
+    get_db,
+)
 from backend.services.worker_client import worker_client
 from backend.services.intelligence_engine import intelligence_engine_service
 from backend.services.evaluation_engine import evaluation_engine_service
@@ -69,6 +77,7 @@ class OSCommand(BaseModel):
     user_id:    str                      = "system"
     context:    Optional[Dict[str, Any]] = None
     async_mode: bool                     = False
+    idempotency_key: Optional[str]       = None
 
 
 class AgentRunRequest(BaseModel):
@@ -91,9 +100,149 @@ class OSResponse(BaseModel):
     result:    Optional[Any] = None
     plan:      Optional[List[str]] = None
     agent:     Optional[str] = None
+    idempotency_record_id: Optional[str] = None
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
+
+
+def _request_fingerprint(scope: str, user_id: str, payload: Dict[str, Any]) -> str:
+    canonical = json.dumps(
+        {"scope": scope, "user_id": user_id, "payload": payload},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _require_idempotency_key(key: Optional[str]) -> str:
+    if not key or not key.strip():
+        raise HTTPException(status_code=422, detail="idempotency_key is required")
+    return key.strip()
+
+
+def _reserve_idempotency(
+    db: Session,
+    *,
+    scope: str,
+    user_id: str,
+    key: str,
+    fingerprint: str,
+) -> tuple[AIOSIdempotencyRecord, bool]:
+    existing = (
+        db.query(AIOSIdempotencyRecord)
+        .filter_by(scope=scope, user_id=user_id, idempotency_key=key)
+        .one_or_none()
+    )
+    if existing is not None:
+        if existing.request_fingerprint != fingerprint:
+            raise HTTPException(
+                status_code=409,
+                detail="idempotency_key was already used with a different request",
+            )
+        return existing, False
+
+    record = AIOSIdempotencyRecord(
+        scope=scope,
+        user_id=user_id,
+        idempotency_key=key,
+        request_fingerprint=fingerprint,
+        status="reserved",
+    )
+    db.add(record)
+    try:
+        db.commit()
+        db.refresh(record)
+        return record, True
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(AIOSIdempotencyRecord)
+            .filter_by(scope=scope, user_id=user_id, idempotency_key=key)
+            .one()
+        )
+        if existing.request_fingerprint != fingerprint:
+            raise HTTPException(
+                status_code=409,
+                detail="idempotency_key was already used with a different request",
+            )
+        return existing, False
+
+
+def _replay_idempotency(
+    record: AIOSIdempotencyRecord,
+    db: Session,
+    *,
+    response_type: str,
+    plan: Optional[List[str]] = None,
+    agent: Optional[str] = None,
+):
+    if record.goal_id is not None:
+        goal = db.get(GoalModel, record.goal_id)
+        if goal is not None:
+            status = goal.status
+        else:
+            status = record.status
+    else:
+        status = record.status
+
+    if record.worker_task_id is not None:
+        task_id = record.worker_task_id
+    elif record.goal_id is not None:
+        task_id = str(record.goal_id)
+    else:
+        task_id = None
+
+    if task_id is None:
+        payload_status = "reserved"
+        record_id = str(record.id)
+    else:
+        payload_status = status
+        record_id = None
+
+    if response_type == "task":
+        payload = TaskStatusResponse(
+            task_id=task_id,
+            status=payload_status,
+            idempotency_record_id=record_id,
+        )
+        if task_id is None:
+            return JSONResponse(
+                status_code=202,
+                content=payload.model_dump(exclude_none=True),
+            )
+        return payload
+
+    payload = OSResponse(
+        status=payload_status,
+        task_id=task_id,
+        plan=plan,
+        agent=agent,
+        idempotency_record_id=record_id,
+    )
+    if task_id is None:
+        return JSONResponse(
+            status_code=202,
+            content=payload.model_dump(exclude_none=True),
+        )
+    return payload
+
+
+def _complete_idempotency(
+    db: Session,
+    record: AIOSIdempotencyRecord,
+    *,
+    status: str,
+    goal_id: Optional[int] = None,
+    worker_task_id: Optional[str] = None,
+) -> None:
+    record.status = status
+    record.goal_id = goal_id
+    record.worker_task_id = worker_task_id
+    if status in {"completed", "completed_partial", "failed"}:
+        record.completed_at = datetime.now(timezone.utc)
+    db.commit()
 
 
 # ── Health helpers ───────────────────────────────────────────
@@ -151,10 +300,34 @@ async def submit_autonomous_os_goal(
     db: Session = Depends(get_db),
 ):
     """Submit high-level goal to Autonomous OS."""
-    log.info(f"[OS] Goal: '{request.goal}' user={request.user_id}")
+    user_id = request.user_id or "system"
+    idempotency_key = _require_idempotency_key(request.idempotency_key)
+    scope = "os.submit_goal"
+    record, is_new = _reserve_idempotency(
+        db,
+        scope=scope,
+        user_id=user_id,
+        key=idempotency_key,
+        fingerprint=_request_fingerprint(
+            scope,
+            user_id,
+            {"goal": request.goal},
+        ),
+    )
+    if not is_new:
+        return _replay_idempotency(record, db, response_type="task")
+
+    log.info(f"[OS] Goal: '{request.goal}' user={user_id}")
 
     try:
         response = await worker_client.submit_task(request)
+        worker_task_id = response.get("task_id")
+        _complete_idempotency(
+            db,
+            record,
+            status=response.get("status", "queued"),
+            worker_task_id=str(worker_task_id) if worker_task_id is not None else None,
+        )
         return TaskStatusResponse(**response)
 
     except HTTPException as e:
@@ -176,8 +349,14 @@ async def submit_autonomous_os_goal(
 
         goal = await autonomous_loop_service.run(
             goal_description=request.goal,
-            user_id=request.user_id or "system",
+            user_id=user_id,
             db=db,
+        )
+        _complete_idempotency(
+            db,
+            record,
+            status=goal.status,
+            goal_id=goal.id,
         )
 
         return TaskStatusResponse(
@@ -261,7 +440,26 @@ async def execute_command(
     """Natural language → create_plan → execute."""
     log.info(f"[OS] execute: '{cmd.command}' user={cmd.user_id}")
     planner = _get_planner()
+    record: Optional[AIOSIdempotencyRecord] = None
     try:
+        if cmd.async_mode:
+            user_id = cmd.user_id or "system"
+            idempotency_key = _require_idempotency_key(cmd.idempotency_key)
+            scope = "os.execute.async"
+            record, is_new = _reserve_idempotency(
+                db,
+                scope=scope,
+                user_id=user_id,
+                key=idempotency_key,
+                fingerprint=_request_fingerprint(
+                    scope,
+                    user_id,
+                    {"command": cmd.command},
+                ),
+            )
+            if not is_new:
+                return _replay_idempotency(record, db, response_type="os")
+
         staged_plan = await asyncio.to_thread(
             planner.create_plan,
             cmd.command,
@@ -273,13 +471,37 @@ async def execute_command(
         primary_agent = task_models[0].tool_name if task_models else "unknown"
 
         if cmd.async_mode:
+            assert record is not None
             try:
                 task = await worker_client.submit_task(
-                    TaskRequest(goal=cmd.command, user_id=cmd.user_id)
+                    TaskRequest(
+                        goal=cmd.command,
+                        user_id=cmd.user_id,
+                        idempotency_key=cmd.idempotency_key,
+                    )
+                )
+                worker_task_id = task.get("task_id")
+                if worker_task_id is None:
+                    return _replay_idempotency(
+                        record,
+                        db,
+                        response_type="os",
+                        plan=steps,
+                        agent=primary_agent,
+                    )
+                _complete_idempotency(
+                    db,
+                    record,
+                    status=task.get("status", "queued"),
+                    worker_task_id=(
+                        str(worker_task_id)
+                        if worker_task_id is not None
+                        else None
+                    ),
                 )
                 return OSResponse(
-                    status="queued",
-                    task_id=task.get("task_id"),
+                    status=task.get("status", "queued"),
+                    task_id=str(worker_task_id),
                     plan=steps,
                     agent=primary_agent,
                 )
@@ -306,6 +528,12 @@ async def execute_command(
                     goal_description=cmd.command,
                     user_id=cmd.user_id or "system",
                     db=db,
+                )
+                _complete_idempotency(
+                    db,
+                    record,
+                    status=goal.status,
+                    goal_id=goal.id,
                 )
 
                 return OSResponse(

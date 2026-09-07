@@ -74,13 +74,15 @@ class FeedbackEvent(BaseModel):
 class TaskRequest(BaseModel):
     goal: str
     user_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 
 class TaskStatusResponse(BaseModel):
-    task_id: str
+    task_id: Optional[str] = None
     status: str
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    idempotency_record_id: Optional[str] = None
 
 
 # ============================================================
