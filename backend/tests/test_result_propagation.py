@@ -403,6 +403,7 @@ async def test_failed_stage_stops_later_stages_and_reflection_sets_goal_status(m
 
     loop = AutonomousLoop()
     db = SessionLocal()
+    goal = None
     stage_calls = []
     reflection_calls = []
 
@@ -449,16 +450,29 @@ async def test_failed_stage_stops_later_stages_and_reflection_sets_goal_status(m
         assert stage_calls == ["trend_scanner"]
         assert reflection_calls == [goal.id]
         assert goal.status == "failed"
-        assert goal.tasks[0].status == "failed"
-        assert goal.tasks[0].result == {"error": "stage one failed"}
-        assert goal.tasks[1].status == "pending"
+
+        failed_task = next(
+            task
+            for task in goal.tasks
+            if task.tool_name == "trend_scanner"
+        )
+        pending_task = next(
+            task
+            for task in goal.tasks
+            if task.tool_name == "trend_analyzer"
+        )
+
+        assert failed_task.status == "failed"
+        assert failed_task.result == {"error": "stage one failed"}
+        assert pending_task.status == "pending"
     finally:
-        persisted = db.get(GoalModel, goal.id)
-        if persisted is not None:
-            for task in persisted.tasks:
-                db.delete(task)
-            db.delete(persisted)
-        db.commit()
+        if goal is not None:
+            persisted = db.get(GoalModel, goal.id)
+            if persisted is not None:
+                for task in persisted.tasks:
+                    db.delete(task)
+                db.delete(persisted)
+            db.commit()
         db.close()
 
 
@@ -489,8 +503,22 @@ async def test_reflection_exception_fails_goal_and_persists_structured_result(mo
     try:
         goal = await loop.run("reflection failure", "test-user", db)
         persisted = db.get(GoalModel, goal.id)
-        failure = persisted.tasks[-1]
+        persisted_tasks = (
+            db.query(TaskModel)
+            .filter(TaskModel.goal_id == goal.id)
+            .order_by(TaskModel.id)
+            .all()
+        )
+        lifecycle_failure_tasks = [
+            task
+            for task in persisted_tasks
+            if task.tool_name == "lifecycle"
+        ]
+        assert lifecycle_failure_tasks
+        failure = lifecycle_failure_tasks[-1]
         assert persisted.status == "failed"
+        assert failure.status == "failed"
+        assert failure.tool_name == "lifecycle"
         assert failure.result == {
             "error": "lifecycle_failure",
             "phase": "reflection",
@@ -573,6 +601,7 @@ async def test_successful_stage_allows_next_stage_execution(monkeypatch):
 
     loop = AutonomousLoop()
     db = SessionLocal()
+    goal = None
     stage_calls = []
 
     def plan(_description, goal_id):
@@ -613,10 +642,11 @@ async def test_successful_stage_allows_next_stage_execution(monkeypatch):
         assert goal.status == "completed"
         assert all(task.status == "completed" for task in goal.tasks)
     finally:
-        persisted = db.get(GoalModel, goal.id)
-        if persisted is not None:
-            for task in persisted.tasks:
-                db.delete(task)
-            db.delete(persisted)
-        db.commit()
+        if goal is not None:
+            persisted = db.get(GoalModel, goal.id)
+            if persisted is not None:
+                for task in persisted.tasks:
+                    db.delete(task)
+                db.delete(persisted)
+            db.commit()
         db.close()

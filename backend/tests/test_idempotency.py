@@ -23,6 +23,18 @@ def _db():
     return SessionLocal()
 
 
+def _persist_goal(db, *, goal_description, user_id, status):
+    goal = Goal(
+        description=goal_description,
+        user_id=user_id,
+        status=status,
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return goal
+
+
 @pytest.fixture(autouse=True)
 def clean_idempotency_records():
     db = _db()
@@ -79,7 +91,12 @@ def test_submit_goal_first_request_and_same_key_replay(monkeypatch):
     class FakeLoop:
         async def run(self, *, goal_description, user_id, db):
             calls["loop"] += 1
-            return SimpleNamespace(id=7001, status="completed")
+            return _persist_goal(
+                db,
+                goal_description=goal_description,
+                user_id=user_id,
+                status="completed",
+            )
 
     monkeypatch.setattr(os_endpoint.worker_client, "submit_task", unavailable)
     monkeypatch.setattr(
@@ -107,7 +124,12 @@ def test_same_key_different_payload_returns_conflict(monkeypatch):
 
     class FakeLoop:
         async def run(self, *, goal_description, user_id, db):
-            return SimpleNamespace(id=7002, status="completed")
+            return _persist_goal(
+                db,
+                goal_description=goal_description,
+                user_id=user_id,
+                status="completed",
+            )
 
     monkeypatch.setattr(os_endpoint.worker_client, "submit_task", unavailable)
     monkeypatch.setattr(
@@ -334,7 +356,12 @@ def test_execute_async_local_fallback_stores_goal_id(monkeypatch):
 
     class FakeLoop:
         async def run(self, *, goal_description, user_id, db):
-            return SimpleNamespace(id=7003, status="failed")
+            return _persist_goal(
+                db,
+                goal_description=goal_description,
+                user_id=user_id,
+                status="failed",
+            )
 
     monkeypatch.setattr(os_endpoint.worker_client, "submit_task", unavailable)
     monkeypatch.setattr(
@@ -366,7 +393,9 @@ def test_execute_async_local_fallback_stores_goal_id(monkeypatch):
         user_id="execute-local-user",
         idempotency_key="execute-local-1",
     ).one()
-    assert record.goal_id == 7003
+    goal = db.get(Goal, record.goal_id)
+    assert goal is not None
+    assert goal.status == "failed"
     assert record.status == "failed"
     db.close()
 

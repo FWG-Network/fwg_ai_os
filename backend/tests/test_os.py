@@ -42,6 +42,7 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
     from types import SimpleNamespace
     from fastapi import HTTPException
     from backend.api.endpoints import os as os_endpoint
+    from backend.models.db import AIOSIdempotencyRecord, Goal, SessionLocal, Task
 
     async def fail_worker(task):
         raise HTTPException(
@@ -54,7 +55,15 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
             assert goal_description == "research AI trends"
             assert user_id == "test_user"
             assert db is not None
-            return SimpleNamespace(id=123, status="completed")
+            goal = Goal(
+                description=goal_description,
+                user_id=user_id,
+                status="completed",
+            )
+            db.add(goal)
+            db.commit()
+            db.refresh(goal)
+            return goal
 
     monkeypatch.setattr(
         os_endpoint.worker_client,
@@ -69,16 +78,30 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
         FakeAutonomousLoop(),
     )
 
-    res = client.post("/os/submit_goal", json={
-        "goal": "research AI trends",
-        "user_id": "test_user",
-        "idempotency_key": "test-os-submit-goal-fallback",
-    })
+    try:
+        res = client.post("/os/submit_goal", json={
+            "goal": "research AI trends",
+            "user_id": "test_user",
+            "idempotency_key": "test-os-submit-goal-fallback",
+        })
 
-    assert res.status_code == 200
-    data = res.json()
-    assert data["task_id"] == "123"
-    assert data["status"] == "completed"
+        assert res.status_code == 200
+        data = res.json()
+        goal_id = int(data["task_id"])
+        assert data["status"] == "completed"
+    finally:
+        db = SessionLocal()
+        db.query(AIOSIdempotencyRecord).filter(
+            AIOSIdempotencyRecord.goal_id == goal_id
+        ).delete(synchronize_session=False)
+        goal = db.get(Goal, goal_id)
+        if goal is not None:
+            db.query(Task).filter(Task.goal_id == goal_id).delete(
+                synchronize_session=False
+            )
+            db.delete(goal)
+        db.commit()
+        db.close()
 
 
 def test_os_submit_goal_local_execution_contract(monkeypatch):
@@ -87,7 +110,12 @@ def test_os_submit_goal_local_execution_contract(monkeypatch):
     from backend.aios.executor import executor_service
     from backend.aios.reflection import reflection_service
     from backend.aios.task_planner import task_planner_service
-    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+    from backend.models.db import (
+        AIOSIdempotencyRecord,
+        Goal as GoalModel,
+        SessionLocal,
+        Task as TaskModel,
+    )
 
     calls = {
         "worker": 0,
@@ -179,6 +207,9 @@ def test_os_submit_goal_local_execution_contract(monkeypatch):
     finally:
         goal = db.get(GoalModel, goal_id)
         if goal is not None:
+            db.query(AIOSIdempotencyRecord).filter(
+                AIOSIdempotencyRecord.goal_id == goal_id
+            ).delete(synchronize_session=False)
             for task in goal.tasks:
                 db.delete(task)
             db.delete(goal)
@@ -379,6 +410,7 @@ def test_os_task_status_falls_back_to_goal_db(monkeypatch):
 def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
     from fastapi import HTTPException
     from backend.api.endpoints import os as os_endpoint
+    from backend.models.db import AIOSIdempotencyRecord, Goal, SessionLocal, Task
 
     async def worker_unavailable(_task):
         raise HTTPException(
@@ -386,15 +418,19 @@ def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
             detail="Worker unavailable",
         )
 
-    class FakeGoal:
-        id = 990001
-        status = "completed"
-
     async def fake_run(*, goal_description, user_id, db):
         assert goal_description == "fallback execute test"
         assert user_id == "test-user"
         assert db is not None
-        return FakeGoal()
+        goal = Goal(
+            description=goal_description,
+            user_id=user_id,
+            status="completed",
+        )
+        db.add(goal)
+        db.commit()
+        db.refresh(goal)
+        return goal
 
     monkeypatch.setattr(
         os_endpoint.worker_client,
@@ -410,20 +446,36 @@ def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
         fake_run,
     )
 
-    response = client.post(
-        "/os/execute",
-        json={
-            "command": "fallback execute test",
-            "user_id": "test-user",
-            "async_mode": True,
-            "idempotency_key": "test-os-fallback-execute",
-        },
-    )
+    goal_id = None
+    try:
+        response = client.post(
+            "/os/execute",
+            json={
+                "command": "fallback execute test",
+                "user_id": "test-user",
+                "async_mode": True,
+                "idempotency_key": "test-os-fallback-execute",
+            },
+        )
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "completed"
-    assert data["task_id"] == "990001"
+        assert response.status_code == 200
+        data = response.json()
+        goal_id = int(data["task_id"])
+        assert data["status"] == "completed"
+    finally:
+        if goal_id is not None:
+            db = SessionLocal()
+            db.query(AIOSIdempotencyRecord).filter(
+                AIOSIdempotencyRecord.goal_id == goal_id
+            ).delete(synchronize_session=False)
+            goal = db.get(Goal, goal_id)
+            if goal is not None:
+                db.query(Task).filter(Task.goal_id == goal_id).delete(
+                    synchronize_session=False
+                )
+                db.delete(goal)
+            db.commit()
+            db.close()
 
 
 def test_os_memory_query_strict_success(monkeypatch):

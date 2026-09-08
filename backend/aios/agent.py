@@ -48,8 +48,8 @@ class LLMAgent(Agent):
             return response
 
         except Exception as e:
-            log.error(f"[LLMAgent] Orchestrator failed: {e} → mock fallback")
-            return f"[LLMAgent fallback] Task: {task_description}"
+            log.error(f"[LLMAgent] Orchestrator failed: {e}")
+            raise
 
 
 # ── Mock Agent (dev/test only) ────────────────────────────────────────
