@@ -38,17 +38,9 @@ def test_os_submit_goal():
     print(f"✅ /os/submit_goal → {res.status_code}")
 
 
-def test_os_submit_goal_fallback_strict(monkeypatch):
+def test_os_submit_goal_local_authority(monkeypatch):
     from types import SimpleNamespace
-    from fastapi import HTTPException
-    from backend.api.endpoints import os as os_endpoint
     from backend.models.db import AIOSIdempotencyRecord, Goal, SessionLocal, Task
-
-    async def fail_worker(task):
-        raise HTTPException(
-            status_code=503,
-            detail="Worker unavailable after 3 retries",
-        )
 
     class FakeAutonomousLoop:
         async def run(self, goal_description, user_id, db):
@@ -65,11 +57,6 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
             db.refresh(goal)
             return goal
 
-    monkeypatch.setattr(
-        os_endpoint.worker_client,
-        "submit_task",
-        fail_worker,
-    )
     import backend.aios.autonomous_loop as autonomous_loop_module
 
     monkeypatch.setattr(
@@ -82,7 +69,7 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
         res = client.post("/os/submit_goal", json={
             "goal": "research AI trends",
             "user_id": "test_user",
-            "idempotency_key": "test-os-submit-goal-fallback",
+            "idempotency_key": "test-os-submit-goal-local-authority",
         })
 
         assert res.status_code == 200
@@ -105,7 +92,6 @@ def test_os_submit_goal_fallback_strict(monkeypatch):
 
 
 def test_os_submit_goal_local_execution_contract(monkeypatch):
-    from fastapi import HTTPException
     from backend.api.endpoints import os as os_endpoint
     from backend.aios.executor import executor_service
     from backend.aios.reflection import reflection_service
@@ -118,18 +104,10 @@ def test_os_submit_goal_local_execution_contract(monkeypatch):
     )
 
     calls = {
-        "worker": 0,
         "planner": 0,
         "executor": 0,
         "reflection": 0,
     }
-
-    async def worker_unavailable(_task):
-        calls["worker"] += 1
-        raise HTTPException(
-            status_code=503,
-            detail="Worker unavailable",
-        )
 
     def local_plan(goal_description, goal_id):
         calls["planner"] += 1
@@ -164,11 +142,6 @@ def test_os_submit_goal_local_execution_contract(monkeypatch):
         calls["reflection"] += 1
         return original_reflection(goal)
 
-    monkeypatch.setattr(
-        os_endpoint.worker_client,
-        "submit_task",
-        worker_unavailable,
-    )
     monkeypatch.setattr(task_planner_service, "create_plan", local_plan)
     monkeypatch.setattr(executor_service, "execute_task", execute_task_spy)
     monkeypatch.setattr(reflection_service, "evaluate", reflection_spy)
@@ -186,7 +159,6 @@ def test_os_submit_goal_local_execution_contract(monkeypatch):
     data = response.json()
     assert data["status"] == "completed"
     assert calls == {
-        "worker": 1,
         "planner": 1,
         "executor": 1,
         "reflection": 1,
@@ -358,27 +330,13 @@ def test_os_agent_run_llm(monkeypatch):
     ]
 
 
-def test_os_task_status_falls_back_to_goal_db(monkeypatch):
-    from fastapi import HTTPException
-    from backend.api.endpoints import os as os_endpoint
+def test_os_task_status_uses_goal_db_authority():
     from backend.models.db import Goal as GoalModel, SessionLocal
-
-    async def worker_unavailable(_task_id: str):
-        raise HTTPException(
-            status_code=503,
-            detail="Worker unavailable",
-        )
-
-    monkeypatch.setattr(
-        os_endpoint.worker_client,
-        "get_task_status",
-        worker_unavailable,
-    )
 
     db = SessionLocal()
     goal = GoalModel(
         user_id="test-task-status",
-        description="strict task status fallback",
+        description="strict local task status",
         status="completed",
     )
     db.add(goal)
@@ -407,19 +365,45 @@ def test_os_task_status_falls_back_to_goal_db(monkeypatch):
         cleanup.close()
 
 
-def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
-    from fastapi import HTTPException
-    from backend.api.endpoints import os as os_endpoint
+def test_os_task_status_returns_local_state_when_worker_would_disagree():
+    from backend.models.db import Goal as GoalModel, SessionLocal
+
+    db = SessionLocal()
+    goal = GoalModel(
+        user_id="test-task-status-authority",
+        description="local status authority",
+        status="failed",
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    goal_id = goal.id
+    db.close()
+
+    try:
+        response = client.get(f"/os/task/status/{goal_id}")
+        assert response.status_code == 200
+        assert response.json()["status"] == "failed"
+    finally:
+        cleanup = SessionLocal()
+        persisted = cleanup.get(GoalModel, goal_id)
+        if persisted is not None:
+            cleanup.delete(persisted)
+        cleanup.commit()
+        cleanup.close()
+
+
+def test_os_task_status_returns_truthful_not_found():
+    response = client.get("/os/task/status/999999999")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Local task not found: 999999999"
+
+
+def test_os_execute_async_uses_local_aios(monkeypatch):
     from backend.models.db import AIOSIdempotencyRecord, Goal, SessionLocal, Task
 
-    async def worker_unavailable(_task):
-        raise HTTPException(
-            status_code=503,
-            detail="Worker unavailable",
-        )
-
     async def fake_run(*, goal_description, user_id, db):
-        assert goal_description == "fallback execute test"
+        assert goal_description == "local execute test"
         assert user_id == "test-user"
         assert db is not None
         goal = Goal(
@@ -431,12 +415,6 @@ def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
         db.commit()
         db.refresh(goal)
         return goal
-
-    monkeypatch.setattr(
-        os_endpoint.worker_client,
-        "submit_task",
-        worker_unavailable,
-    )
 
     from backend.aios.autonomous_loop import autonomous_loop_service
 
@@ -451,10 +429,10 @@ def test_os_execute_async_falls_back_to_local_aios(monkeypatch):
         response = client.post(
             "/os/execute",
             json={
-                "command": "fallback execute test",
+                "command": "local execute test",
                 "user_id": "test-user",
                 "async_mode": True,
-                "idempotency_key": "test-os-fallback-execute",
+                "idempotency_key": "test-os-local-execute",
             },
         )
 

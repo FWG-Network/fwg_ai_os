@@ -23,7 +23,6 @@ from backend.models.db import (
     Goal as GoalModel,
     get_db,
 )
-from backend.services.worker_client import worker_client
 from backend.services.intelligence_engine import intelligence_engine_service
 from backend.services.evaluation_engine import evaluation_engine_service
 
@@ -187,12 +186,7 @@ def _replay_idempotency(
     else:
         status = record.status
 
-    if record.worker_task_id is not None:
-        task_id = record.worker_task_id
-    elif record.goal_id is not None:
-        task_id = str(record.goal_id)
-    else:
-        task_id = None
+    task_id = str(record.goal_id) if record.goal_id is not None else None
 
     if task_id is None:
         payload_status = "reserved"
@@ -320,31 +314,7 @@ async def submit_autonomous_os_goal(
     log.info(f"[OS] Goal: '{request.goal}' user={user_id}")
 
     try:
-        response = await worker_client.submit_task(request)
-        worker_task_id = response.get("task_id")
-        _complete_idempotency(
-            db,
-            record,
-            status=response.get("status", "queued"),
-            worker_task_id=str(worker_task_id) if worker_task_id is not None else None,
-        )
-        return TaskStatusResponse(**response)
-
-    except HTTPException as e:
-        # The current repository has no HTTP worker bridge, so a 503
-        # represents worker unavailability and may safely fall back to
-        # the existing in-process AIOS lifecycle.
-        if e.status_code != 503:
-            raise
-        log.warning(
-            f"[OS] Worker unavailable, falling back to direct AIOS loop: {e}"
-        )
-
-    except Exception as e:
-        log.error(f"[OS] submit_goal worker error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    try:
+        # Local AIOS is the authoritative execution path.
         from backend.aios.autonomous_loop import autonomous_loop_service
 
         goal = await autonomous_loop_service.run(
@@ -365,7 +335,7 @@ async def submit_autonomous_os_goal(
         )
 
     except Exception as e:
-        log.error(f"[OS] submit_goal fallback failed: {e}")
+        log.error(f"[OS] submit_goal local AIOS failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -374,23 +344,7 @@ async def get_task_status(
     task_id: str,
     db: Session = Depends(get_db),
 ):
-    """Get status of an OS task, falling back to persisted Goal state."""
-    try:
-        return await worker_client.get_task_status(task_id)
-
-    except HTTPException as e:
-        if e.status_code != 503:
-            raise
-
-        log.warning(
-            f"[OS] Worker unavailable for task_status task_id={task_id}; "
-            "falling back to local DB"
-        )
-
-    except Exception as e:
-        log.error(f"[OS] task_status worker error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+    """Get status from the authoritative local AIOS Goal state."""
     try:
         goal_id = int(task_id)
     except (TypeError, ValueError):
@@ -473,53 +427,7 @@ async def execute_command(
         if cmd.async_mode:
             assert record is not None
             try:
-                task = await worker_client.submit_task(
-                    TaskRequest(
-                        goal=cmd.command,
-                        user_id=cmd.user_id,
-                        idempotency_key=cmd.idempotency_key,
-                    )
-                )
-                worker_task_id = task.get("task_id")
-                if worker_task_id is None:
-                    return _replay_idempotency(
-                        record,
-                        db,
-                        response_type="os",
-                        plan=steps,
-                        agent=primary_agent,
-                    )
-                _complete_idempotency(
-                    db,
-                    record,
-                    status=task.get("status", "queued"),
-                    worker_task_id=(
-                        str(worker_task_id)
-                        if worker_task_id is not None
-                        else None
-                    ),
-                )
-                return OSResponse(
-                    status=task.get("status", "queued"),
-                    task_id=str(worker_task_id),
-                    plan=steps,
-                    agent=primary_agent,
-                )
-
-            except HTTPException as e:
-                if e.status_code != 503:
-                    raise
-
-                log.warning(
-                    "[OS] Worker unavailable for async execute; "
-                    "falling back to local AIOS loop"
-                )
-
-            except Exception as e:
-                log.error(f"[OS] execute worker error: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
-
-            try:
+                # Local AIOS is the authoritative execution path.
                 from backend.aios.autonomous_loop import (
                     autonomous_loop_service,
                 )
@@ -544,7 +452,7 @@ async def execute_command(
                 )
 
             except Exception as e:
-                log.error(f"[OS] execute fallback failed: {e}")
+                log.error(f"[OS] execute local AIOS failed: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         return OSResponse(

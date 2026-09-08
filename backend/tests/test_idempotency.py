@@ -3,7 +3,6 @@ from threading import Lock
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from backend.main import app
@@ -82,11 +81,7 @@ def clean_idempotency_records():
 
 
 def test_submit_goal_first_request_and_same_key_replay(monkeypatch):
-    calls = {"worker": 0, "loop": 0}
-
-    async def unavailable(_request):
-        calls["worker"] += 1
-        raise HTTPException(status_code=503, detail="offline")
+    calls = {"loop": 0}
 
     class FakeLoop:
         async def run(self, *, goal_description, user_id, db):
@@ -98,7 +93,6 @@ def test_submit_goal_first_request_and_same_key_replay(monkeypatch):
                 status="completed",
             )
 
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", unavailable)
     monkeypatch.setattr(
         "backend.aios.autonomous_loop.autonomous_loop_service",
         FakeLoop(),
@@ -115,13 +109,10 @@ def test_submit_goal_first_request_and_same_key_replay(monkeypatch):
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.json() == second.json()
-    assert calls == {"worker": 1, "loop": 1}
+    assert calls == {"loop": 1}
 
 
 def test_same_key_different_payload_returns_conflict(monkeypatch):
-    async def unavailable(_request):
-        raise HTTPException(status_code=503, detail="offline")
-
     class FakeLoop:
         async def run(self, *, goal_description, user_id, db):
             return _persist_goal(
@@ -131,7 +122,6 @@ def test_same_key_different_payload_returns_conflict(monkeypatch):
                 status="completed",
             )
 
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", unavailable)
     monkeypatch.setattr(
         "backend.aios.autonomous_loop.autonomous_loop_service",
         FakeLoop(),
@@ -181,13 +171,23 @@ def test_concurrent_submit_goal_requests_share_one_operation(monkeypatch):
     calls = 0
     lock = Lock()
 
-    async def worker(_request):
-        nonlocal calls
-        with lock:
-            calls += 1
-        return {"task_id": "worker-concurrent-1", "status": "queued"}
+    class FakeLoop:
+        async def run(self, *, goal_description, user_id, db):
+            nonlocal calls
+            with lock:
+                calls += 1
+            return _persist_goal(
+                db,
+                goal_description=goal_description,
+                user_id=user_id,
+                status="completed",
+            )
 
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", worker)
+    monkeypatch.setattr(
+        "backend.aios.autonomous_loop.autonomous_loop_service",
+        FakeLoop(),
+    )
+
     payload = {
         "goal": "concurrent submit",
         "user_id": "concurrent-endpoint-user",
@@ -199,7 +199,7 @@ def test_concurrent_submit_goal_requests_share_one_operation(monkeypatch):
 
     assert {response.status_code for response in responses} <= {200, 202}
     assert calls == 1
-    assert {response.json()["status"] for response in responses} <= {"reserved", "queued"}
+    assert len({response.json().get("task_id") for response in responses}) <= 2
 
 
 def test_completed_and_failed_operations_replay_without_worker(monkeypatch):
@@ -218,6 +218,8 @@ def test_completed_and_failed_operations_replay_without_worker(monkeypatch):
     db.commit()
     db.refresh(completed)
     db.refresh(failed)
+    completed_id = completed.id
+    failed_id = failed.id
     db.add_all([
         AIOSIdempotencyRecord(
             scope="os.submit_goal",
@@ -243,11 +245,6 @@ def test_completed_and_failed_operations_replay_without_worker(monkeypatch):
     db.commit()
     db.close()
 
-    async def should_not_run(_request):
-        raise AssertionError("worker must not run for an existing key")
-
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", should_not_run)
-
     completed_response = client.post(
         "/os/submit_goal",
         json={
@@ -265,95 +262,83 @@ def test_completed_and_failed_operations_replay_without_worker(monkeypatch):
         },
     )
 
-    assert completed_response.json()["status"] == "completed"
-    assert failed_response.json()["status"] == "failed"
+    assert completed_response.json()["task_id"] == str(completed_id)
+    assert failed_response.json()["task_id"] == str(failed_id)
 
 
-def test_execute_async_worker_path_stores_worker_task_id(monkeypatch):
+def test_worker_metadata_is_not_replayed_as_local_task_id():
+    db = _db()
+    record = AIOSIdempotencyRecord(
+        scope="os.execute.async",
+        user_id="worker-metadata-user",
+        idempotency_key="worker-metadata-key",
+        request_fingerprint=os_endpoint._request_fingerprint(
+            "os.execute.async", "worker-metadata-user", {"command": "metadata only"}
+        ),
+        status="reserved",
+        worker_task_id="worker-support-123",
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    record_id = record.id
+    db.close()
+
+    response = client.post(
+        "/os/execute",
+        json={
+            "command": "metadata only",
+            "user_id": "worker-metadata-user",
+            "async_mode": True,
+            "idempotency_key": "worker-metadata-key",
+        },
+    )
+
+    assert response.status_code == 202
+    assert response.json().get("task_id") is None
+    assert response.json()["idempotency_record_id"] == str(record_id)
+
+
+def test_execute_async_local_execution_replays_goal_id(monkeypatch):
     calls = 0
 
-    async def worker(request):
-        nonlocal calls
-        calls += 1
-        assert request.idempotency_key == "execute-worker-1"
-        return {"task_id": "worker-7001", "status": "queued"}
+    class FakeLoop:
+        async def run(self, *, goal_description, user_id, db):
+            nonlocal calls
+            calls += 1
+            return _persist_goal(
+                db,
+                goal_description=goal_description,
+                user_id=user_id,
+                status="completed",
+            )
 
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", worker)
+    monkeypatch.setattr(
+        "backend.aios.autonomous_loop.autonomous_loop_service",
+        FakeLoop(),
+    )
+    monkeypatch.setattr(
+        os_endpoint,
+        "_get_planner",
+        lambda: SimpleNamespace(create_plan=lambda command, user_id: [[]]),
+    )
 
     payload = {
-        "command": "execute worker once",
-        "user_id": "execute-user",
+        "command": "execute local once",
+        "user_id": "execute-local-user",
         "async_mode": True,
-        "idempotency_key": "execute-worker-1",
+        "idempotency_key": "execute-local-1",
     }
     first = client.post("/os/execute", json=payload)
     second = client.post("/os/execute", json=payload)
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.json()["task_id"] == "worker-7001"
-    assert second.json()["task_id"] == "worker-7001"
+    assert first.json()["task_id"] == second.json()["task_id"]
     assert calls == 1
 
-    db = _db()
-    record = db.query(AIOSIdempotencyRecord).filter_by(
-        scope="os.execute.async",
-        user_id="execute-user",
-        idempotency_key="execute-worker-1",
-    ).one()
-    assert record.worker_task_id == "worker-7001"
-    assert record.status == "queued"
-    db.close()
 
-
-def test_execute_async_worker_success_without_task_id_stays_reserved(monkeypatch):
-    calls = 0
-
-    async def worker(_request):
-        nonlocal calls
-        calls += 1
-        return {"status": "queued"}
-
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", worker)
-    monkeypatch.setattr(
-        os_endpoint,
-        "_get_planner",
-        lambda: SimpleNamespace(
-            create_plan=lambda command, user_id: [[]]
-        ),
-    )
-
-    payload = {
-        "command": "worker response missing task id",
-        "user_id": "missing-worker-id-user",
-        "async_mode": True,
-        "idempotency_key": "missing-worker-id-key",
-    }
-    first = client.post("/os/execute", json=payload)
-    second = client.post("/os/execute", json=payload)
-
-    assert first.status_code == 202
-    assert second.status_code == 202
-    assert first.json().get("task_id") is None
-    assert second.json().get("task_id") is None
-    assert first.json()["idempotency_record_id"] == second.json()["idempotency_record_id"]
-    assert calls == 1
-
-    db = _db()
-    record = db.query(AIOSIdempotencyRecord).filter_by(
-        scope="os.execute.async",
-        user_id="missing-worker-id-user",
-        idempotency_key="missing-worker-id-key",
-    ).one()
-    assert record.status == "reserved"
-    assert record.worker_task_id is None
-    db.close()
-
-
-def test_execute_async_local_fallback_stores_goal_id(monkeypatch):
-    async def unavailable(_request):
-        raise HTTPException(status_code=503, detail="offline")
-
+def test_execute_async_local_execution_stores_goal_id(monkeypatch):
     class FakeLoop:
         async def run(self, *, goal_description, user_id, db):
             return _persist_goal(
@@ -363,7 +348,6 @@ def test_execute_async_local_fallback_stores_goal_id(monkeypatch):
                 status="failed",
             )
 
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", unavailable)
     monkeypatch.setattr(
         "backend.aios.autonomous_loop.autonomous_loop_service",
         FakeLoop(),
@@ -483,7 +467,7 @@ def test_reserved_record_is_not_silently_reexecuted():
     assert "error" not in payload
 
 
-def test_reserved_record_replays_bound_worker_task_id(monkeypatch):
+def test_reserved_record_does_not_replay_worker_task_id():
     db = _db()
     record = AIOSIdempotencyRecord(
         scope="os.execute.async",
@@ -500,14 +484,6 @@ def test_reserved_record_replays_bound_worker_task_id(monkeypatch):
     db.refresh(record)
     db.close()
 
-    calls = {"submit": 0}
-
-    async def worker(_request):
-        calls["submit"] += 1
-        raise AssertionError("reserved worker task replay must not execute again")
-
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", worker)
-
     response = client.post(
         "/os/execute",
         json={
@@ -518,10 +494,9 @@ def test_reserved_record_replays_bound_worker_task_id(monkeypatch):
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["task_id"] == "worker-queued-123"
+    assert response.status_code == 202
+    assert response.json().get("task_id") is None
     assert response.json()["status"] == "reserved"
-    assert calls == {"submit": 0}
 
 
 def test_reserved_record_replays_bound_goal_id(monkeypatch):
@@ -549,14 +524,6 @@ def test_reserved_record_replays_bound_goal_id(monkeypatch):
     db.commit()
     db.close()
 
-    calls = {"submit": 0}
-
-    async def worker(_request):
-        calls["submit"] += 1
-        raise AssertionError("reserved goal replay must not execute again")
-
-    monkeypatch.setattr(os_endpoint.worker_client, "submit_task", worker)
-
     response = client.post(
         "/os/submit_goal",
         json={
@@ -569,4 +536,3 @@ def test_reserved_record_replays_bound_goal_id(monkeypatch):
     assert response.status_code == 200
     assert response.json()["task_id"] == str(goal_id)
     assert response.json()["status"] == "running"
-    assert calls == {"submit": 0}
