@@ -218,3 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 *.db
 *.db
+google-cloud-cli-linux-x86_64.tar.gz
+t -q
+tatus --short --branch
