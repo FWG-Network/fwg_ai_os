@@ -5,18 +5,18 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-# Required for HF Space
-RUN useradd -m -u 1000 user
-USER user
-ENV PATH=/home/user/.local/bin:$PATH
+# Chạy root: nested overlay2-in-Codespaces không cho non-root exec (đã confirm qua test)
+# RUN useradd -m -u 1000 user
+# USER user
+# ENV PATH=/home/user/.local/bin:$PATH
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=user ./backend /app/backend
-COPY --chown=user ./config /app/config
+COPY ./backend /app/backend
+COPY ./config /app/config
 
-# HF Space ត្រូវការ port 7860
+# HF Space cần port 7860
 EXPOSE 7860
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
