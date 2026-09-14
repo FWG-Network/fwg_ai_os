@@ -277,12 +277,9 @@ def _ping_db() -> str:
 
 def _ping_worker() -> str:
     try:
-        import httpx
-        resp = httpx.get(
-            f"http://{settings.WORKER_HOST}:{settings.WORKER_PORT}/health",
-            timeout=3,
-        )
-        return "online" if resp.status_code == 200 else "degraded"
+        from backend.worker import celery_app
+        replies = celery_app.control.ping(timeout=2)
+        return "online" if replies else "offline (async tasks unavailable)"
     except Exception:
         return "offline (async tasks unavailable)"
 
