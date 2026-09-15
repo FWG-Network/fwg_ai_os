@@ -50,6 +50,7 @@ services:
   worker:
     build: .
     container_name: aios_worker
+    network_mode: host
     command: celery -A backend.worker.celery_app worker --loglevel=info --concurrency=${CELERY_CONCURRENCY:-1}
     volumes:
       - ./backend:/app/backend
