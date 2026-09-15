@@ -118,9 +118,9 @@ class LLMOrchestrator:
                 task_type=task_type,
             )
             log.info(f"[Orchestrator] ✅ Response generated ({len(response)} chars)")
-        except Exception as e:
-            log.error(f"[Orchestrator] LLM generation failed: {e}")
-            response = f"Generation failed: {e}"
+        except Exception:
+            log.exception("[Orchestrator] LLM generation failed")
+            raise
 
         return {
             "status":                      "generated",
