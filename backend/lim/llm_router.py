@@ -84,6 +84,10 @@ OPENROUTER_PREF_ENV = {
 DEFAULT_ROUTING = {k: "auto" for k in TASK_CATEGORY}
 
 
+class LLMProviderError(RuntimeError):
+    """Raised when no configured real LLM provider can fulfill a request."""
+
+
 class LLMRouter:
     def __init__(self, config_path: str = "config/models.yml"):
         self.routing_map = DEFAULT_ROUTING.copy()
@@ -135,7 +139,9 @@ class LLMRouter:
             if result:
                 self._log_answered("HF Inference", "mistralai/Mistral-7B-Instruct-v0.2")
                 return result
-            return self._mock(prompt)
+            raise LLMProviderError(
+                f"No real LLM provider available for task_type={task_type}"
+            )
 
         if category == "premium":
             result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type))
@@ -150,7 +156,9 @@ class LLMRouter:
             result = await self._call_openrouter(prompt, max_tokens, task_type)
             if result:
                 return result
-            return self._mock(prompt)
+            raise LLMProviderError(
+                f"No real LLM provider available for task_type={task_type}"
+            )
 
         if category == "writer":
             result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type))
@@ -162,7 +170,9 @@ class LLMRouter:
             result = await self._call_openrouter(prompt, max_tokens, task_type)
             if result:
                 return result
-            return self._mock(prompt)
+            raise LLMProviderError(
+                f"No real LLM provider available for task_type={task_type}"
+            )
 
         if category == "fast":
             result = await self._call_cloudflare(prompt, max_tokens, CF_MODEL_BY_TASK.get(task_type))
@@ -174,11 +184,14 @@ class LLMRouter:
             result = await self._call_openrouter(prompt, max_tokens, task_type)
             if result:
                 return result
-            return self._mock(prompt)
+            raise LLMProviderError(
+                f"No real LLM provider available for task_type={task_type}"
+            )
 
         # unreachable given TASK_CATEGORY.get default, kept for safety
-        log.warning(f"[LLMRouter] Unknown category for task_type={task_type} — falling to mock")
-        return self._mock(prompt)
+        raise LLMProviderError(
+            f"Unknown LLM category for task_type={task_type}"
+        )
 
     # ── Honest logging helper ────────────────────────────────────────
     def _log_answered(self, provider: str, model: str) -> None:
