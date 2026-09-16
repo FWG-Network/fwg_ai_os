@@ -783,3 +783,55 @@ def test_os_plan_strict(monkeypatch):
 
     assert calls["command"] == "find trending AI videos"
     assert calls["user_id"] == "test_user"
+
+
+def test_os_submit_goal_does_not_delegate_to_worker(monkeypatch):
+    from backend.api.endpoints import os as os_endpoint
+    from backend.models.db import AIOSIdempotencyRecord, Goal, SessionLocal, Task
+
+    calls = {"worker": 0}
+
+    async def worker_must_not_run(*args, **kwargs):
+        calls["worker"] += 1
+        raise AssertionError("WorkerClient must not be authoritative for /os/submit_goal")
+
+    monkeypatch.setattr(
+        os_endpoint,
+        "worker_client",
+        type(
+            "WorkerGuard",
+            (),
+            {"submit_task": worker_must_not_run},
+        )(),
+        raising=False,
+    )
+
+    response = client.post(
+        "/os/submit_goal",
+        json={
+            "goal": "worker authority boundary",
+            "user_id": "test-user",
+            "idempotency_key": "test-os-worker-authority-boundary",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls["worker"] == 0
+
+    db = SessionLocal()
+    try:
+        records = db.query(AIOSIdempotencyRecord).filter(
+            AIOSIdempotencyRecord.idempotency_key == "test-os-worker-authority-boundary"
+        ).all()
+        for record in records:
+            if record.goal_id is not None:
+                goal = db.get(Goal, record.goal_id)
+                db.query(Task).filter(Task.goal_id == record.goal_id).delete(
+                    synchronize_session=False
+                )
+                if goal is not None:
+                    db.delete(goal)
+            db.delete(record)
+        db.commit()
+    finally:
+        db.close()
