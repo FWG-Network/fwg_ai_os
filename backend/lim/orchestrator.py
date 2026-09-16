@@ -79,7 +79,7 @@ class LLMOrchestrator:
             }
 
         # ── Step 3: Select LLM model ──────────────────────────────────
-        selected_model = model or self.llm.select(task_type)
+        selected_model = model
         log.info(f"[Orchestrator] Selected model: {selected_model}")
 
         # ── Step 4: RAG — retrieve context + build prompt ─────────────
