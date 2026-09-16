@@ -16,7 +16,7 @@ class EmbeddingService:
         print(f"EmbeddingService: Using device '{device}'.")
         
         # Load the pre-trained model. This will be shared in memory by forked processes.
-        self.model = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+        self.model = SentenceTransformer('BAAI/bge-small-en-v1.5', device=device)
         
         # Set to evaluation mode for inference
         self.model.eval()

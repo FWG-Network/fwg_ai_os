@@ -5,6 +5,11 @@ Real Qdrant vector memory — replaces numpy mock.
 from typing import List, Optional
 from backend.core.config import settings
 from backend.core.logger import log
+from backend.llm.embedding_service import embedding_service
+
+
+class VectorMemoryError(RuntimeError):
+    """Raised when the Qdrant-backed vector memory operation fails."""
 
 
 class VectorMemory:
@@ -47,35 +52,16 @@ class VectorMemory:
             )
             log.info(f"[VectorMemory] Created collection '{collection}'")
 
-    # ── Embed text (HuggingFace or fallback) ─────────────────────────
+    # ── Embed text (canonical BGE service) ───────────────────────────
     def _embed(self, text: str) -> List[float]:
         """
-        Real text embedding.
-        Try HuggingFace sentence-transformers → fallback hash-based.
-        """
-        try:
-            from sentence_transformers import SentenceTransformer
-            model  = SentenceTransformer("all-MiniLM-L6-v2")
-            vector = model.encode(text).tolist()
-            return vector
-        except ImportError:
-            log.warning("[VectorMemory] sentence_transformers not installed — using hash embedding")
-            return self._hash_embed(text)
+        Use the canonical real embedding service.
 
-    @staticmethod
-    def _hash_embed(text: str, dim: int = 384) -> List[float]:
+        Embedding failures propagate to the caller.
+        No hash/random/mock fallback is allowed in production.
         """
-        Deterministic hash-based embedding.
-        Better than random — same text = same vector.
-        """
-        import hashlib, math
-        h      = hashlib.sha256(text.encode()).hexdigest()
-        vector = []
-        for i in range(dim):
-            seed = int(h[i % 64], 16) + i
-            val  = math.sin(seed) * 10000
-            vector.append(val - int(val))   # fractional part in [-1, 1]
-        return vector
+        vector = embedding_service.encode(text)
+        return vector.tolist()
 
     # ── ADD ───────────────────────────────────────────────────────────
     def add(
@@ -118,18 +104,20 @@ class VectorMemory:
         threshold:  float = 0.0,
     ) -> List[dict]:
         """Semantic search in Qdrant."""
+        vector = self._embed(query)
+
         try:
             self._ensure_collection(collection)
             client = self._get_client()
-            vector = self._embed(query)
 
-            results = client.search(
+            response = client.query_points(
                 collection_name=collection,
-                query_vector=vector,
+                query=vector,
                 limit=top_k,
                 score_threshold=threshold,
                 with_payload=True,
             )
+            results = response.points
 
             output = [{
                 "id":       str(r.id),
@@ -143,7 +131,9 @@ class VectorMemory:
 
         except Exception as e:
             log.error(f"[VectorMemory] Search failed: {e}")
-            return []
+            raise VectorMemoryError(
+                f"Vector memory search failed for collection '{collection}'"
+            ) from e
 
     # ── DELETE ────────────────────────────────────────────────────────
     def delete(self, doc_id: str, collection: str = "fwg_content") -> bool:
@@ -158,7 +148,9 @@ class VectorMemory:
             return True
         except Exception as e:
             log.error(f"[VectorMemory] Delete failed: {e}")
-            return False
+            raise VectorMemoryError(
+                f"Vector memory delete failed for collection '{collection}'"
+            ) from e
 
     # ── STATS ─────────────────────────────────────────────────────────
     def stats(self, collection: str = "fwg_content") -> dict:
@@ -171,7 +163,10 @@ class VectorMemory:
                 "status":        str(info.status),
             }
         except Exception as e:
-            return {"collection": collection, "error": str(e)}
+            log.error(f"[VectorMemory] Stats failed: {e}")
+            raise VectorMemoryError(
+                f"Vector memory stats failed for collection '{collection}'"
+            ) from e
 
 
 # ── Global instance ───────────────────────────────────────────────────
