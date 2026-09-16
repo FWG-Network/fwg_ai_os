@@ -95,9 +95,15 @@ except Exception as e:
     multimodal_engine_service = None
 
 try:
-    from backend.learning.reward        import reward_service
+    from backend.learning.reward import RewardEngine
     from backend.learning.online_learning import online_learning_service
-    from backend.learning.trainer       import trainer_service
+    from backend.learning.trainer import Trainer
+
+    reward_service = RewardEngine()
+    trainer_service = Trainer(
+        reward_engine=reward_service,
+        learning_engine=online_learning_service,
+    )
     log.info("✅ Learning services imported")
 except Exception as e:
     log.warning(f"⚠️ Learning services unavailable: {e}")
