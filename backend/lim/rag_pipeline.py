@@ -44,32 +44,42 @@ class RAGPipeline:
         return self._llm_router
 
     # ── SEARCH context ────────────────────────────────────────────────
+    def retrieve_context(
+        self,
+        query:      str,
+        top_k:      int = 5,
+        collection: str = "fwg_content",
+    ) -> tuple[str, bool]:
+        """Retrieve context and report whether memory actually supplied hits."""
+        hits = self.memory.search(
+            query=query,
+            top_k=top_k,
+            collection=collection,
+        )
+
+        if not hits:
+            return "No relevant context found in memory.", False
+
+        context = "\n\n".join([
+            f"[{i+1}] (score={h['score']:.3f}) {h['text']}"
+            for i, h in enumerate(hits)
+        ])
+        log.info(f"[RAG] Retrieved {len(hits)} context chunks")
+        return context, True
+
     def _retrieve_context(
         self,
         query:      str,
         top_k:      int = 5,
         collection: str = "fwg_content",
     ) -> str:
-        """Retrieve relevant context from Qdrant."""
-        try:
-            hits = self.memory.search(
-                query=query,
-                top_k=top_k,
-                collection=collection,
-            )
-            if not hits:
-                return "No relevant context found in memory."
-
-            context = "\n\n".join([
-                f"[{i+1}] (score={h['score']:.3f}) {h['text']}"
-                for i, h in enumerate(hits)
-            ])
-            log.info(f"[RAG] Retrieved {len(hits)} context chunks")
-            return context
-
-        except Exception as e:
-            log.warning(f"[RAG] Context retrieval failed: {e}")
-            return "Context unavailable."
+        """Backward-compatible context-only retrieval wrapper."""
+        context, _ = self.retrieve_context(
+            query=query,
+            top_k=top_k,
+            collection=collection,
+        )
+        return context
 
     # ── BUILD PROMPT ──────────────────────────────────────────────────
     def build_prompt(

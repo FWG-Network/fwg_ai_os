@@ -98,8 +98,9 @@ class LLMOrchestrator:
         }
         template = template_map.get(task_type, "default")
 
+        retrieved_context_from_memory = False
         try:
-            context       = self.rag._retrieve_context(query)
+            context, retrieved_context_from_memory = self.rag.retrieve_context(query)
             final_prompt  = self.rag.prompt_engine.build(
                 system_prompt=system_prompt,
                 context=context,
@@ -129,7 +130,7 @@ class LLMOrchestrator:
             "task_type":                   task_type,
             "query":                       query,
             "response":                    response,
-            "retrieved_context_from_memory": True,
+            "retrieved_context_from_memory": retrieved_context_from_memory,
         }
 
 
