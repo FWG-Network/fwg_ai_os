@@ -362,18 +362,26 @@ async def get_task_status(
         for task in goal.tasks
         if task.status == "failed"
     ]
+    completed_tasks = [
+        task
+        for task in goal.tasks
+        if task.status == "completed" and task.result is not None
+    ]
 
     error = None
     result = None
 
     if failed_tasks:
-        latest_failed = failed_tasks[-1]
+        latest_failed = max(failed_tasks, key=lambda task: task.id)
         error_payload = latest_failed.result or {}
         if isinstance(error_payload, dict):
             error = error_payload.get("error")
         if error is None:
             error = f"Task {latest_failed.id} failed"
         result = latest_failed.result
+    elif completed_tasks:
+        latest_completed = max(completed_tasks, key=lambda task: task.id)
+        result = latest_completed.result
 
     return TaskStatusResponse(
         task_id=str(goal.id),

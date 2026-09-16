@@ -365,6 +365,60 @@ def test_os_task_status_uses_goal_db_authority():
         cleanup.close()
 
 
+def test_os_task_status_propagates_latest_completed_task_result():
+    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+
+    db = SessionLocal()
+    goal = GoalModel(
+        user_id="test-task-status-result",
+        description="completed task result propagation",
+        status="completed",
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+
+    task = TaskModel(
+        goal_id=goal.id,
+        description="real persisted result",
+        tool_name="ranking_engine",
+        status="completed",
+        result={
+            "tool": "ranking_engine",
+            "ranked": [{"id": "real-result-1"}],
+        },
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    goal_id = goal.id
+    expected_result = task.result
+    db.close()
+
+    try:
+        response = client.get(f"/os/task/status/{goal_id}")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "task_id": str(goal_id),
+            "status": "completed",
+            "result": expected_result,
+            "error": None,
+            "idempotency_record_id": None,
+        }
+    finally:
+        cleanup = SessionLocal()
+        persisted = cleanup.get(GoalModel, goal_id)
+        if persisted is not None:
+            cleanup.query(TaskModel).filter(
+                TaskModel.goal_id == goal_id
+            ).delete(synchronize_session=False)
+            cleanup.delete(persisted)
+        cleanup.commit()
+        cleanup.close()
+
+
 def test_os_task_status_returns_local_state_when_worker_would_disagree():
     from backend.models.db import Goal as GoalModel, SessionLocal
 
