@@ -1,0 +1,8 @@
+FWG-AI-OS SMART DOCTOR v2
+Started: 2026-09-19 17:31:57 UTC
+Result: FAILED
+PASS=3 WARN=0 FAIL=16
+
+The full diagnostic output is intentionally generated
+by the command above and stored here:
+/workspaces/fwg_ai_os/.devcontainer/diagnostics/latest.txt

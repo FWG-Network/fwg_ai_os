@@ -7,6 +7,33 @@ DATA_ROOT="/tmp/docker-data"
 DAEMON_JSON="/etc/docker/daemon.json"
 COMPOSE_DIR="/workspaces/fwg_ai_os"
 
+# --- 0. Ensure containerd is running FIRST (dockerd needs it) ---
+ensure_containerd() {
+    if pgrep -x containerd > /dev/null 2>&1; then
+        echo "[dev_up] ✅ containerd already running."
+        return 0
+    fi
+
+    echo "[dev_up] containerd not running — starting it..."
+    sudo rm -f /run/containerd/containerd.sock 2>/dev/null
+    sudo setsid containerd > /tmp/containerd.log 2>&1 < /dev/null &
+    disown
+
+    for i in $(seq 1 30); do
+        if pgrep -x containerd > /dev/null 2>&1 && [ -S /run/containerd/containerd.sock ]; then
+            echo "[dev_up] ✅ containerd is up."
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "[dev_up] ❌ containerd failed to start within 30s — check /tmp/containerd.log"
+    tail -20 /tmp/containerd.log
+    exit 1
+}
+
+ensure_containerd
+
 # --- 1. Ensure daemon.json is correct ---
 NEED_RESTART=0
 DESIRED_JSON='{
@@ -31,7 +58,6 @@ fi
 if [ "$NEED_RESTART" = "1" ] || ! pgrep -x dockerd > /dev/null; then
     echo "[dev_up] Restarting dockerd..."
     sudo pkill -9 dockerd 2>/dev/null
-    sudo pkill -9 containerd 2>/dev/null
     sleep 2
     sudo mkdir -p "$DATA_ROOT"
     sudo setsid dockerd > /tmp/dockerd.log 2>&1 < /dev/null &
@@ -90,5 +116,5 @@ if echo "$STATUS_JSON" | grep -q '"status":"operational"'; then
     echo "[dev_up] 🎉 All systems operational."
 else
     echo ""
-    echo "[dev_up] ⚠️  Stack is up but status is not fully 'operational' — check the services above for anything offline/degraded."
+    echo "[dev_up] ⚠️ Stack is up but status is not fully 'operational' — check the services above for anything offline/degraded."
 fi
