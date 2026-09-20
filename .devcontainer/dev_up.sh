@@ -98,7 +98,42 @@ echo "[dev_up] ✅ docker-compose.yml is valid."
 echo "[dev_up] Bringing up containers (db, redis, qdrant, api, worker)..."
 docker compose up -d db redis qdrant api worker
 
-# --- 6. Poll the API until it responds instead of a fixed sleep ---
+# --- 6. Ensure Docker Compose bridge is reachable through legacy FORWARD ---
+COMPOSE_BRIDGE=$(docker network inspect fwg_ai_os_default --format '{{index .Options "com.docker.network.bridge.name"}}' 2>/dev/null || true)
+
+if [ -z "$COMPOSE_BRIDGE" ]; then
+    COMPOSE_BRIDGE=$(docker network inspect fwg_ai_os_default --format '{{.Id}}' 2>/dev/null | cut -c1-12 | sed 's/^/br-/')
+fi
+
+if [ -n "$COMPOSE_BRIDGE" ] && command -v iptables-legacy >/dev/null 2>&1; then
+    if sudo iptables-legacy -C FORWARD -i "$COMPOSE_BRIDGE" -o "$COMPOSE_BRIDGE" -j ACCEPT 2>/dev/null; then
+        echo "[dev_up] ✅ legacy intra-bridge FORWARD rule already present for $COMPOSE_BRIDGE."
+    else
+        echo "[dev_up] Adding legacy intra-bridge FORWARD rule for $COMPOSE_BRIDGE..."
+        sudo iptables-legacy -I FORWARD 1 -i "$COMPOSE_BRIDGE" -o "$COMPOSE_BRIDGE" -j ACCEPT
+        echo "[dev_up] ✅ legacy intra-bridge FORWARD rule added."
+    fi
+
+    if sudo iptables-legacy -C FORWARD -i "$COMPOSE_BRIDGE" ! -o "$COMPOSE_BRIDGE" -j ACCEPT 2>/dev/null; then
+        echo "[dev_up] ✅ legacy outbound FORWARD rule already present for $COMPOSE_BRIDGE."
+    else
+        echo "[dev_up] Adding legacy outbound FORWARD rule for $COMPOSE_BRIDGE..."
+        sudo iptables-legacy -I FORWARD 2 -i "$COMPOSE_BRIDGE" ! -o "$COMPOSE_BRIDGE" -j ACCEPT
+        echo "[dev_up] ✅ legacy outbound FORWARD rule added."
+    fi
+
+    if sudo iptables-legacy -C FORWARD -o "$COMPOSE_BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null; then
+        echo "[dev_up] ✅ legacy return FORWARD rule already present for $COMPOSE_BRIDGE."
+    else
+        echo "[dev_up] Adding legacy return FORWARD rule for $COMPOSE_BRIDGE..."
+        sudo iptables-legacy -I FORWARD 3 -o "$COMPOSE_BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        echo "[dev_up] ✅ legacy return FORWARD rule added."
+    fi
+else
+    echo "[dev_up] ⚠️ Could not determine Compose bridge or iptables-legacy is unavailable."
+fi
+
+# --- 7. Poll the API until it responds instead of a fixed sleep ---
 echo "[dev_up] Waiting for API to respond on :8000..."
 for i in $(seq 1 30); do
     if curl -sS -o /dev/null http://127.0.0.1:8000/os/status 2>/dev/null; then

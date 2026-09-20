@@ -102,7 +102,7 @@ with engine.connect() as conn:
 
 assert row.probe == 1
 assert row.current_user == "viral"
-assert row.current_database() == "viral"
+assert row.current_database == "viral"
 
 engine.dispose()
 PY
@@ -135,7 +135,7 @@ QDRANT_RESULT="$(
   docker compose exec -T api python - <<'PY' 2>/dev/null
 import requests
 
-base = "http://localhost:6333"
+base = "http://qdrant:6333"
 
 r = requests.get(f"{base}/collections", timeout=5)
 r.raise_for_status()
@@ -172,8 +172,8 @@ if [[ "$QDRANT_RESULT" == *"status=green"* ]]; then
     pass "Qdrant fwg_content contains indexed points"
   fi
 elif [[ "$QDRANT_RESULT" == *"MISSING_COLLECTION"* ]]; then
-  fail "Qdrant expected collection missing" \
-       "Expected collection: fwg_content"
+  warn "Qdrant fwg_content collection not initialized" \
+       "Collection is created lazily by the canonical VectorMemory path on the first real memory operation."
 else
   fail "Qdrant application probe failed" \
        "Expected reachable fwg_content collection with status=green."
@@ -217,12 +217,17 @@ if not replies:
 print("worker_ping=PASS")
 print("workers=" + ",".join(sorted(replies.keys())))
 
+registered = celery_app.control.inspect(timeout=3).registered() or {}
+
 tasks = sorted(
-    name for name in celery_app.tasks
+    name
+    for names in registered.values()
+    for name in (names or [])
     if not name.startswith("celery.")
 )
 
 print("registered_tasks=" + str(len(tasks)))
+print("registered_task_names=" + ",".join(tasks))
 PY
 )"
 

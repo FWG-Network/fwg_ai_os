@@ -1,7 +1,7 @@
 FWG-AI-OS SMART DOCTOR v2
-Started: 2026-09-19 17:31:57 UTC
-Result: FAILED
-PASS=3 WARN=0 FAIL=16
+Started: 2026-09-20 09:12:20 UTC
+Result: DEGRADED
+PASS=23 WARN=2 FAIL=0
 
 The full diagnostic output is intentionally generated
 by the command above and stored here:
