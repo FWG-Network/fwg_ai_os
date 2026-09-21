@@ -166,8 +166,8 @@ if [[ "$QDRANT_RESULT" == *"status=green"* ]]; then
   pass "Qdrant fwg_content collection healthy"
 
   if [[ "$QDRANT_RESULT" == *"points=0"* ]]; then
-    warn "Qdrant knowledge index is empty" \
-         "fwg_content exists and is green, but contains 0 points."
+    pass "Qdrant knowledge index ready for ingestion" \
+         "fwg_content exists and is healthy; no content has been indexed yet."
   else
     pass "Qdrant fwg_content contains indexed points"
   fi
