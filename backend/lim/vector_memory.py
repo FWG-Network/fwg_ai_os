@@ -159,7 +159,7 @@ class VectorMemory:
             info = self._get_client().get_collection(collection)
             return {
                 "collection":    collection,
-                "vectors_count": info.vectors_count,
+                "vectors_count": info.points_count,
                 "status":        str(info.status),
             }
         except Exception as e:

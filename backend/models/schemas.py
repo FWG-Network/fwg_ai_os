@@ -92,7 +92,7 @@ class TaskStatusResponse(BaseModel):
 class ContentItem(BaseModel):
     id: Optional[str] = None
     title: Optional[str] = None
-    text: Optional[str] = None
+    text: str
     url: Optional[str] = None
     platform: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None

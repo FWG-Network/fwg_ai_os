@@ -18,40 +18,59 @@ WARN=0
 FAIL=0
 declare -a ISSUES=()
 
+# ────────────────────────────────────────────────────────────────
+# Professional terminal presentation
+# Icons reflect actual check results; they do not replace health logic.
+# ────────────────────────────────────────────────────────────────
+
 pass() {
   PASS=$((PASS + 1))
-  printf '[PASS] %s\n' "$1"
+  printf '  ✅ %s\n' "$1"
 }
 
 warn() {
   WARN=$((WARN + 1))
-  printf '[WARN] %s\n' "$1"
-  [[ -n "${2:-}" ]] && printf '       %s\n' "$2"
+  printf '  ⚠️  %s\n' "$1"
+  [[ -n "${2:-}" ]] && printf '      ↳ %s\n' "$2"
   ISSUES+=("WARN|$1|${2:-}")
 }
 
 fail() {
   FAIL=$((FAIL + 1))
-  printf '[FAIL] %s\n' "$1"
-  [[ -n "${2:-}" ]] && printf '       %s\n' "$2"
+  printf '  ❌ %s\n' "$1"
+  [[ -n "${2:-}" ]] && printf '      ↳ %s\n' "$2"
   ISSUES+=("FAIL|$1|${2:-}")
 }
 
 section() {
-  printf '\n%s\n' "$1"
+  printf '\n╭─ %s\n' "$1"
+  printf '╰────────────────────────────────────────────────────────────\n'
+}
+
+checking() {
+  printf '  🔍 %s\n' "$1"
 }
 
 run_quiet() {
   "$@" >/dev/null 2>&1
 }
 
-echo "============================================================"
-echo " FWG-AI-OS SMART DOCTOR v2"
-echo " Started: $START_TS"
-echo " Root:    $ROOT"
-echo "============================================================"
+printf '
+'
+printf '╭──────────────────────────────────────────────────────────────╮
+'
+printf '│ 🤖 FWG-AI-OS SMART DOCTOR v3                                │
+'
+printf '│ 🔍 Production health verification                           │
+'
+printf '│ 🕐 Started: %-49s│
+' "$START_TS"
+printf '╰──────────────────────────────────────────────────────────────╯
+'
+printf '  📁 Root: %s
+' "$ROOT"
 
-section "DOCKER"
+checking "DOCKER"\nsection "DOCKER"
 
 if ! command -v docker >/dev/null 2>&1; then
   fail "Docker CLI unavailable" "Install/enable Docker before continuing."
@@ -65,7 +84,7 @@ else
   fi
 fi
 
-section "COMPOSE"
+checking "COMPOSE"\nsection "COMPOSE"
 
 if docker compose config -q >/dev/null 2>&1; then
   pass "Docker Compose configuration valid"
@@ -74,7 +93,7 @@ else
        "Run: docker compose config"
 fi
 
-section "CONTAINER RUNTIME"
+checking "CONTAINER RUNTIME"\nsection "CONTAINER RUNTIME"
 
 for svc in db redis qdrant api worker; do
   state="$(docker compose ps --status running --services 2>/dev/null | grep -Fx "$svc" || true)"
@@ -87,7 +106,7 @@ for svc in db redis qdrant api worker; do
   fi
 done
 
-section "POSTGRESQL"
+checking "POSTGRESQL"\nsection "POSTGRESQL"
 
 if docker compose exec -T api python - <<'PY' >/dev/null 2>&1
 from sqlalchemy import create_engine, text
@@ -114,7 +133,7 @@ else
        "Verify PostgreSQL, DATABASE_URL, and application credentials."
 fi
 
-section "REDIS"
+checking "REDIS"\nsection "REDIS"
 
 REDIS_RESULT="$(
   docker compose exec -T redis redis-cli ping 2>/dev/null |
@@ -129,7 +148,7 @@ else
        "Expected PONG; check Redis container and connectivity."
 fi
 
-section "QDRANT"
+checking "QDRANT"\nsection "QDRANT"
 
 QDRANT_RESULT="$(
   docker compose exec -T api python - <<'PY' 2>/dev/null
@@ -179,7 +198,7 @@ else
        "Expected reachable fwg_content collection with status=green."
 fi
 
-section "API"
+checking "API"\nsection "API"
 
 API_STATUS="$(
   curl -fsS --max-time 5 \
@@ -203,7 +222,7 @@ else
        "Run: docker compose logs --tail=100 api"
 fi
 
-section "CELERY WORKER"
+checking "CELERY WORKER"\nsection "CELERY WORKER"
 
 WORKER_RESULT="$(
   docker compose exec -T worker python - <<'PY' 2>/dev/null
@@ -254,7 +273,7 @@ else
        "Check worker logs and Redis broker connectivity."
 fi
 
-section "LLM CONFIGURATION"
+checking "LLM CONFIGURATION"\nsection "LLM CONFIGURATION"
 
 LLM_VARS=(
   MODEL_REASONING
@@ -278,7 +297,7 @@ for var in "${LLM_VARS[@]}"; do
   fi
 done
 
-section "OPENROUTER"
+checking "OPENROUTER"\nsection "OPENROUTER"
 
 OPENROUTER_RESULT="$(
   docker compose exec -T api python - <<'PY' 2>/dev/null
@@ -342,7 +361,7 @@ else
        "Check OPENROUTER_API_KEY and outbound network access."
 fi
 
-section "RECENT LOG ERRORS"
+checking "RECENT LOG ERRORS"\nsection "RECENT LOG ERRORS"
 
 # Only inspect fresh logs. Old historical errors should not degrade
 # every terminal startup forever.
@@ -383,7 +402,7 @@ if [[ "$ERROR_FOUND" -eq 0 ]]; then
   pass "No recent error-like log entries in core services"
 fi
 
-section "DEEP REAL E2E"
+checking "DEEP REAL E2E"\nsection "DEEP REAL E2E"
 
 if [[ "$DEEP" -eq 1 ]]; then
   echo "Running real Task -> Executor -> DB -> LLM verification..."
@@ -458,7 +477,7 @@ else
   echo "       Run: .devcontainer/fwg-doctor.sh --deep"
 fi
 
-section "FINAL DIAGNOSIS"
+checking "FINAL DIAGNOSIS"\nsection "FINAL DIAGNOSIS"
 
 if [[ "$FAIL" -gt 0 ]]; then
   STATUS="FAILED"
@@ -474,12 +493,16 @@ else
   SUMMARY="All automatic core health checks passed."
 fi
 
-printf '%s %s\n' "$ICON" "FWG-AI-OS $STATUS"
-printf 'PASS : %d\n' "$PASS"
-printf 'WARN : %d\n' "$WARN"
-printf 'FAIL : %d\n' "$FAIL"
-printf 'RESULT: %s\n' "$STATUS"
-printf '%s\n' "$SUMMARY"
+printf '\n'
+printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+printf '%s %s FWG-AI-OS %s\n' "$ICON" "$ICON" "$STATUS"
+printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
+printf '  ✅ PASS : %d\n' "$PASS"
+printf '  ⚠️  WARN : %d\n' "$WARN"
+printf '  ❌ FAIL : %d\n' "$FAIL"
+printf '  🎯 RESULT: %s\n' "$STATUS"
+printf '  ℹ️  %s\n' "$SUMMARY"
+printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n
 
 if [[ "${#ISSUES[@]}" -gt 0 ]]; then
   echo
