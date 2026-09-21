@@ -22,6 +22,10 @@ class TaskPlanner:
             log.info(f"[TaskPlanner] Intent=TrendForecasting  goal_id={goal_id}")
             return self._create_trend_forecasting_plan(goal_id, goal_lower)
 
+        if "reply with exactly:" in goal_lower:
+            log.info(f"[TaskPlanner] Intent=ExactOutput  goal_id={goal_id}")
+            return self._create_exact_output_plan(goal_description, goal_id)
+
         log.info(f"[TaskPlanner] Intent=GenericResearch  goal_id={goal_id}")
         return self._create_generic_research_plan(goal_description, goal_id)
 
@@ -69,6 +73,21 @@ class TaskPlanner:
         ]
 
     # ─── Generic Research Plan ───────────────────────────────────────
+    def _create_exact_output_plan(
+        self, goal_description: str, goal_id: Any
+    ) -> List[List[TaskModel]]:
+        return [
+            [
+                TaskModel(
+                    description=goal_description,
+                    goal_id=goal_id,
+                    tool_name="llm_agent",
+                    tool_params={"task_type": "exact"},
+                )
+            ]
+        ]
+
+    # ── Generic Research Plan ─────────
     def _create_generic_research_plan(
         self, goal_description: str, goal_id: Any
     ) -> List[List[TaskModel]]:
@@ -91,6 +110,7 @@ class TaskPlanner:
                     description=f"Synthesize findings for '{goal_description}'.",
                     goal_id=goal_id,
                     tool_name="llm_agent",
+                    tool_params={"task_type": "reasoning"},
                 )
             ],
             [   # Stage 3 — Report
@@ -98,6 +118,7 @@ class TaskPlanner:
                     description=f"Draft final summary report for '{goal_description}'.",
                     goal_id=goal_id,
                     tool_name="llm_agent",
+                    tool_params={"task_type": "writer"},
                 )
             ],
         ]

@@ -59,6 +59,37 @@ async def test_generate_response_propagates_real_llm_failure():
 
 
 @pytest.mark.asyncio
+async def test_explicit_task_type_bypasses_tool_planner():
+    calls = []
+
+    orchestrator = make_orchestrator(
+        SimpleNamespace(
+            retrieve_context=lambda query: (
+                "No relevant context found in memory.",
+                False,
+            ),
+            prompt_engine=SimpleNamespace(
+                build=lambda **kwargs: kwargs["query"],
+            ),
+        )
+    )
+
+    orchestrator._tools = SimpleNamespace(
+        decide=lambda query: calls.append(query) or "summarize",
+    )
+
+    result = await orchestrator.generate_response(
+        query="Draft final summary report for 'Reply with exactly: FWG_DOCTOR_DEEP_E2E_OK'",
+        user_id="test-user",
+        task_type="writer",
+    )
+
+    assert calls == []
+    assert result["response"] == "generated response"
+    assert result["task_type"] == "writer"
+
+
+@pytest.mark.asyncio
 async def test_retrieved_context_metadata_true_when_memory_returns_hits():
     orchestrator = make_orchestrator(
         SimpleNamespace(

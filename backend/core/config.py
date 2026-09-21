@@ -52,7 +52,10 @@ class Settings:
     CLOUD_FUNCTION_URL:   str = os.getenv("CLOUD_FUNCTION_URL","")  # ✅ Dev: TikTok
 
     # ─── AI & LLM Models (NEW INTEGRATION) ────────────────────────
-    # 1. Cloudflare Workers AI
+    # 1. Gemini / Google Generative AI
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
+    # 2. Cloudflare Workers AI
     CLOUDFLARE_API_KEY:    str = os.getenv("CLOUDFLARE_API_KEY", "")
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
     CF_MODEL_REASONING: str = os.getenv("CF_MODEL_REASONING", "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b")

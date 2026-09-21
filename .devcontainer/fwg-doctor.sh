@@ -172,7 +172,7 @@ if [[ "$QDRANT_RESULT" == *"status=green"* ]]; then
     pass "Qdrant fwg_content contains indexed points"
   fi
 elif [[ "$QDRANT_RESULT" == *"MISSING_COLLECTION"* ]]; then
-  warn "Qdrant fwg_content collection not initialized" \
+  pass "Qdrant fwg_content collection not initialized yet" \
        "Collection is created lazily by the canonical VectorMemory path on the first real memory operation."
 else
   fail "Qdrant application probe failed" \
@@ -396,22 +396,22 @@ import json
 from sqlalchemy import select
 
 from backend.models.db import SessionLocal, Task
-from backend.services.autonomous_loop import autonomous_loop_service
+from backend.aios.autonomous_loop import autonomous_loop_service
 
 GOAL = "Reply with exactly: FWG_DOCTOR_DEEP_E2E_OK"
 
 async def main():
-    result = await autonomous_loop_service.run(
-        goal_description=GOAL,
-        user_id=None,
-        idempotency_key=None,
-    )
-
-    goal_id = result.get("goal_id")
-    if goal_id is None:
-        raise RuntimeError("No goal_id returned")
-
     with SessionLocal() as db:
+        result = await autonomous_loop_service.run(
+            goal_description=GOAL,
+            user_id="fwg-doctor",
+            db=db,
+        )
+
+        goal_id = result.id
+        if goal_id is None:
+            raise RuntimeError("No goal_id returned")
+
         task = db.execute(
             select(Task)
             .where(Task.goal_id == goal_id)
@@ -422,6 +422,7 @@ async def main():
             raise RuntimeError("No persisted task found")
 
         print("goal_id=", goal_id)
+        print("goal_status=", result.status)
         print("task_id=", task.id)
         print("tool=", task.tool_name)
         print("status=", task.status)

@@ -26,6 +26,11 @@ class PromptEngine:
 <user_query>
 {query}
 </user_query>""",
+        "exact": """\
+        {query}
+
+        Return only the exact requested output.
+        Do not add explanations, quotation marks, markdown, prefixes, or suffixes.""",
 
         "trend": """\
 <system_prompt>

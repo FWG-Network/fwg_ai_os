@@ -47,6 +47,7 @@ TASK_CATEGORY = {
     "story":     "premium",
 
     "writer":    "writer",
+    "exact":    "writer",
     "code":      "writer",
     "creative":  "writer",   # ASSUMPTION — confirm with Dev if this should be "premium" instead
 
@@ -76,6 +77,7 @@ OPENROUTER_PREF_ENV = {
     "reasoning": "MODEL_REASONING",
     "story":     "STORY_MODEL_PREFERENCE",
     "writer":    "MODEL_WRITER",
+    "exact":     "MODEL_WRITER",
     "code":      "MODEL_WRITER",
     "creative":  "MODEL_WRITER",
     "fast":      "MODEL_FAST",
@@ -126,7 +128,11 @@ class LLMRouter:
         model: Optional[str] = None,
         max_tokens: int = 512,
         task_type: str = "default",
+        metadata: Optional[dict] = None,
     ) -> str:
+        # Request-local metadata; never store actual model state on the
+        # global singleton because concurrent requests may overwrite it.
+        metadata = metadata if metadata is not None else {}
         category = self.select_category(task_type)
         log.info(f"[LLMRouter] task_type={task_type} category={category} tokens={max_tokens}")
 
@@ -144,16 +150,16 @@ class LLMRouter:
             )
 
         if category == "premium":
-            result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type))
+            result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type), metadata)
             if result:
                 return result
-            result = await self._call_cloudflare(prompt, max_tokens, CF_MODEL_BY_TASK.get(task_type))
+            result = await self._call_cloudflare(prompt, max_tokens, CF_MODEL_BY_TASK.get(task_type), metadata)
             if result:
                 return result
-            result = await self._call_gemini(prompt, max_tokens)
+            result = await self._call_gemini(prompt, max_tokens, metadata)
             if result:
                 return result
-            result = await self._call_openrouter(prompt, max_tokens, task_type)
+            result = await self._call_openrouter(prompt, max_tokens, task_type, metadata)
             if result:
                 return result
             raise LLMProviderError(
@@ -161,13 +167,13 @@ class LLMRouter:
             )
 
         if category == "writer":
-            result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type))
+            result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type), metadata)
             if result:
                 return result
-            result = await self._call_gemini(prompt, max_tokens)
+            result = await self._call_gemini(prompt, max_tokens, metadata)
             if result:
                 return result
-            result = await self._call_openrouter(prompt, max_tokens, task_type)
+            result = await self._call_openrouter(prompt, max_tokens, task_type, metadata)
             if result:
                 return result
             raise LLMProviderError(
@@ -175,13 +181,13 @@ class LLMRouter:
             )
 
         if category == "fast":
-            result = await self._call_cloudflare(prompt, max_tokens, CF_MODEL_BY_TASK.get(task_type))
+            result = await self._call_cloudflare(prompt, max_tokens, CF_MODEL_BY_TASK.get(task_type), metadata)
             if result:
                 return result
-            result = await self._call_gemini(prompt, max_tokens)
+            result = await self._call_gemini(prompt, max_tokens, metadata)
             if result:
                 return result
-            result = await self._call_openrouter(prompt, max_tokens, task_type)
+            result = await self._call_openrouter(prompt, max_tokens, task_type, metadata)
             if result:
                 return result
             raise LLMProviderError(
@@ -203,7 +209,7 @@ class LLMRouter:
         return f"[Mock LLM] Generated response for: '{prompt[:100]}...'"
 
     # ── GitHub Models (OpenAI-compatible, Azure AI Inference endpoint) ─
-    async def _call_github_models(self, prompt: str, max_tokens: int, model_id: Optional[str]) -> Optional[str]:
+    async def _call_github_models(self, prompt: str, max_tokens: int, model_id: Optional[str], metadata: dict) -> Optional[str]:
         token = getattr(settings, "GH_MODELS_TOKEN", "")
         if not token or not model_id:
             return None
@@ -225,6 +231,8 @@ class LLMRouter:
                 resp.raise_for_status()
                 data = resp.json()
                 text = data["choices"][0]["message"]["content"]
+                metadata["provider"] = "GitHub Models"
+                metadata["model_used"] = model_id
                 self._log_answered("GitHub Models", model_id)
                 return text
         except Exception as e:
@@ -232,7 +240,7 @@ class LLMRouter:
             return None
 
     # ── Cloudflare Workers AI ────────────────────────────────────────
-    async def _call_cloudflare(self, prompt: str, max_tokens: int, model_id: Optional[str]) -> Optional[str]:
+    async def _call_cloudflare(self, prompt: str, max_tokens: int, model_id: Optional[str], metadata: dict) -> Optional[str]:
         api_key = getattr(settings, "CLOUDFLARE_API_KEY", "")
         account_id = getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "")
         if not api_key or not account_id or not model_id:
@@ -253,6 +261,8 @@ class LLMRouter:
                 data = resp.json()
                 text = data.get("result", {}).get("response")
                 if text:
+                    metadata["provider"] = "Cloudflare Workers AI"
+                    metadata["model_used"] = model_id
                     self._log_answered("Cloudflare Workers AI", model_id)
                 return text
         except Exception as e:
@@ -260,14 +270,14 @@ class LLMRouter:
             return None
 
     # ── Gemini (Google generative AI) ───────────────────────────────
-    async def _call_gemini(self, prompt: str, max_tokens: int) -> Optional[str]:
+    async def _call_gemini(self, prompt: str, max_tokens: int, metadata: dict) -> Optional[str]:
         api_key = getattr(settings, "GEMINI_API_KEY", "")
         if not api_key:
             return None
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": [{"text": prompt}]}],
                         "generationConfig": {"maxOutputTokens": max_tokens},
@@ -280,19 +290,34 @@ class LLMRouter:
                 data = resp.json()
                 text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text")
                 if text:
-                    self._log_answered("Gemini", "gemini-2.0-flash")
+                    metadata["provider"] = "Gemini"
+                    metadata["model_used"] = "gemini-3.6-flash"
+                    self._log_answered("Gemini", "gemini-3.6-flash")
                 return text
         except Exception as e:
             log.warning(f"[LLMRouter] Gemini call failed: {e}")
             return None
 
     # ── OpenRouter (OpenAI-compatible gateway) ───────────────────────
-    async def _call_openrouter(self, prompt: str, max_tokens: int, task_type: str) -> Optional[str]:
+    async def _call_openrouter(self, prompt: str, max_tokens: int, task_type: str, metadata: dict) -> Optional[str]:
         api_key = getattr(settings, "OPENROUTER_API_KEY", "")
         env_key = OPENROUTER_PREF_ENV.get(task_type, "OPENROUTER_MODEL")
         model_id = getattr(settings, env_key, None) or getattr(settings, "OPENROUTER_MODEL", "")
         if not api_key or not model_id:
             return None
+
+        # OpenRouter model-level fallback chain.
+        # Keep the primary model deterministic while allowing temporary
+        # upstream rate limits/availability failures to fall through.
+        import os
+        fallback_env_key = f"{env_key}_FALLBACKS"
+        fallback_raw = os.getenv(fallback_env_key, "")
+        fallback_models = [
+            item.strip()
+            for item in fallback_raw.split(",")
+            if item.strip()
+        ]
+        models = [model_id, *[m for m in fallback_models if m != model_id]]
         try:
             import httpx
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -300,18 +325,58 @@ class LLMRouter:
                     "https://openrouter.ai/api/v1/chat/completions",
                     json={
                         "model": model_id,
+                        "models": models,
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": max_tokens,
                     },
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
                 if resp.status_code == 429:
-                    log.warning("[LLMRouter] OpenRouter rate-limited (429) — falling through")
-                    return None
+                    for retry_delay in (1, 2):
+                        log.warning(
+                            "[LLMRouter] OpenRouter rate-limited (429) "
+                            f"— retrying in {retry_delay}s"
+                        )
+                        import asyncio
+                        await asyncio.sleep(retry_delay)
+                        resp = await client.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            json={
+                                "model": model_id,
+                                "models": models,
+                                "messages": [{"role": "user", "content": prompt}],
+                                "max_tokens": max_tokens,
+                            },
+                            headers={"Authorization": f"Bearer {api_key}"},
+                        )
+                        if resp.status_code != 429:
+                            break
+
+                    if resp.status_code == 429:
+                        log.warning(
+                            "[LLMRouter] OpenRouter still rate-limited "
+                            "after retries — falling through"
+                        )
+                        return None
+
                 resp.raise_for_status()
                 data = resp.json()
-                text = data["choices"][0]["message"]["content"]
-                self._log_answered("OpenRouter", model_id)
+                choice = data.get("choices", [{}])[0]
+                message = choice.get("message", {})
+                text = message.get("content")
+
+                if not text:
+                    finish_reason = choice.get("finish_reason")
+                    log.warning(
+                        "[LLMRouter] OpenRouter returned no usable content "
+                        f"(finish_reason={finish_reason!r}) — falling through"
+                    )
+                    return None
+
+                actual_model = data.get("model") or model_id
+                metadata["provider"] = "OpenRouter"
+                metadata["model_used"] = actual_model
+                self._log_answered("OpenRouter", actual_model)
                 return text
         except Exception as e:
             log.warning(f"[LLMRouter] OpenRouter call failed: {e}")

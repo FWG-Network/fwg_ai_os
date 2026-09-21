@@ -60,12 +60,21 @@ class LLMOrchestrator:
         """
         log.info(f"[Orchestrator] query='{query[:60]}' user={user_id} task={task_type}")
 
-        # ── Step 1: Tool routing decision ─────────────────────────────
-        try:
-            tool = self.tools.decide(query)
-        except Exception as e:
-            log.warning(f"[Orchestrator] ToolPlanner failed: {e} → default llm")
+        # ── Step 1: Tool routing decision ──
+        # Explicit AIOS task types take precedence over keyword routing.
+        # Legacy/default calls continue to use ToolPlanner heuristics.
+        if task_type and task_type != "default":
             tool = "llm"
+            log.info(
+                f"[Orchestrator] Explicit task_type={task_type!r} "
+                "→ llm (bypassing ToolPlanner)"
+            )
+        else:
+            try:
+                tool = self.tools.decide(query)
+            except Exception as e:
+                log.warning(f"[Orchestrator] ToolPlanner failed: {e} → default llm")
+                tool = "llm"
 
         # ── Step 2: Route to external tool if needed ──────────────────
         if tool != "llm":
@@ -91,10 +100,11 @@ class LLMOrchestrator:
 
         # ✅ Fix: map task_type → prompt template
         template_map = {
-            "trend":      "trend",
-            "discovery":  "discovery",
-            "rag":        "rag",
-            "summarize":  "summarize",
+            "trend":     "trend",
+            "discovery": "discovery",
+            "rag":       "rag",
+            "summarize": "summarize",
+            "exact":     "exact",
         }
         template = template_map.get(task_type, "default")
 
@@ -112,11 +122,13 @@ class LLMOrchestrator:
             final_prompt = query
 
         # ── Step 5: Generate via LLM ──────────────────────────────────
+        llm_metadata = {}
         try:
             response = await self.llm.generate(
                 prompt=final_prompt,
                 model=selected_model,
                 task_type=task_type,
+                metadata=llm_metadata,
             )
             log.info(f"[Orchestrator] ✅ Response generated ({len(response)} chars)")
         except Exception:
@@ -126,7 +138,8 @@ class LLMOrchestrator:
         return {
             "status":                      "generated",
             "tool":                        "llm",
-            "model_used":                  selected_model,
+            "model_used":                    llm_metadata.get("model_used") or selected_model,
+            "provider":                      llm_metadata.get("provider"),
             "task_type":                   task_type,
             "query":                       query,
             "response":                    response,
