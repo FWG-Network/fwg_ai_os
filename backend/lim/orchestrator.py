@@ -130,6 +130,12 @@ class LLMOrchestrator:
                 task_type=task_type,
                 metadata=llm_metadata,
             )
+
+            if not isinstance(response, str) or not response.strip():
+                raise RuntimeError(
+                    "LLM provider returned an empty or non-string response"
+                )
+
             log.info(f"[Orchestrator] ✅ Response generated ({len(response)} chars)")
         except Exception:
             log.exception("[Orchestrator] LLM generation failed")

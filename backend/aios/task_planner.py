@@ -26,6 +26,14 @@ class TaskPlanner:
             log.info(f"[TaskPlanner] Intent=ExactOutput  goal_id={goal_id}")
             return self._create_exact_output_plan(goal_description, goal_id)
 
+        if self._is_generation_intent(goal_lower):
+            log.info(f"[TaskPlanner] Intent=Generation  goal_id={goal_id}")
+            return self._create_generation_plan(goal_description, goal_id)
+
+        if self._is_memory_intent(goal_lower):
+            log.info(f"[TaskPlanner] Intent=MemorySearch  goal_id={goal_id}")
+            return self._create_memory_search_plan(goal_description, goal_id)
+
         log.info(f"[TaskPlanner] Intent=GenericResearch  goal_id={goal_id}")
         return self._create_generic_research_plan(goal_description, goal_id)
 
@@ -73,6 +81,61 @@ class TaskPlanner:
         ]
 
     # ─── Generic Research Plan ───────────────────────────────────────
+    @staticmethod
+    def _is_generation_intent(goal_lower: str) -> bool:
+        return any(
+            phrase in goal_lower
+            for phrase in (
+                "generate ",
+                "write ",
+                "create ",
+                "draft ",
+                "compose ",
+                "make a script",
+                "make an article",
+            )
+        )
+
+    @staticmethod
+    def _is_memory_intent(goal_lower: str) -> bool:
+        return any(
+            phrase in goal_lower
+            for phrase in (
+                "search memory",
+                "recall ",
+                "find from memory",
+                "what did i save",
+                "retrieve from memory",
+            )
+        )
+
+    def _create_generation_plan(
+        self, goal_description: str, goal_id: Any
+    ) -> List[List[TaskModel]]:
+        return [
+            [
+                TaskModel(
+                    description=goal_description,
+                    goal_id=goal_id,
+                    tool_name="llm_agent",
+                    tool_params={"task_type": "writer"},
+                )
+            ]
+        ]
+
+    def _create_memory_search_plan(
+        self, goal_description: str, goal_id: Any
+    ) -> List[List[TaskModel]]:
+        return [
+            [
+                TaskModel(
+                    description=goal_description,
+                    goal_id=goal_id,
+                    tool_name="vector_memory",
+                )
+            ]
+        ]
+
     def _create_exact_output_plan(
         self, goal_description: str, goal_id: Any
     ) -> List[List[TaskModel]]:

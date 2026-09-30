@@ -477,6 +477,81 @@ async def test_failed_stage_stops_later_stages_and_reflection_sets_goal_status(m
 
 
 @pytest.mark.asyncio
+async def test_empty_llm_response_fails_task_and_goal_persists(monkeypatch):
+    from backend.lim.orchestrator import llm_orchestrator
+    from backend.models.db import Goal as GoalModel, SessionLocal, Task as TaskModel
+
+    loop = AutonomousLoop()
+    db = SessionLocal()
+    goal = None
+
+    def plan(_description, goal_id):
+        return [[
+            TaskModel(
+                description="empty LLM response",
+                goal_id=goal_id,
+                tool_name="llm_agent",
+            )
+        ]]
+
+    async def empty_llm_generate(**_kwargs):
+        return ""
+
+    monkeypatch.setattr(
+        __import__(
+            "backend.aios.task_planner",
+            fromlist=["task_planner_service"],
+        ).task_planner_service,
+        "create_plan",
+        plan,
+    )
+    monkeypatch.setattr(
+        llm_orchestrator.llm,
+        "generate",
+        empty_llm_generate,
+    )
+
+    try:
+        goal = await loop.run(
+            "empty LLM response",
+            "test-user",
+            db,
+        )
+
+        persisted = db.get(GoalModel, goal.id)
+        persisted_tasks = (
+            db.query(TaskModel)
+            .filter(TaskModel.goal_id == goal.id)
+            .order_by(TaskModel.id)
+            .all()
+        )
+
+        llm_tasks = [
+            task
+            for task in persisted_tasks
+            if task.tool_name == "llm_agent"
+        ]
+
+        assert llm_tasks
+        failed_task = llm_tasks[-1]
+        assert persisted.status == "failed"
+        assert failed_task.status == "failed"
+        assert failed_task.result == {
+            "error": "LLM provider returned an empty or non-string response",
+        }
+        assert persisted.status != "completed"
+    finally:
+        if goal is not None:
+            persisted = db.get(GoalModel, goal.id)
+            if persisted is not None:
+                for task in persisted.tasks:
+                    db.delete(task)
+                db.delete(persisted)
+                db.commit()
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_reflection_exception_fails_goal_and_persists_structured_result(monkeypatch):
     from backend.aios.reflection import reflection_service
     from backend.aios.task_planner import task_planner_service

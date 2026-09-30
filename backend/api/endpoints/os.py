@@ -278,7 +278,7 @@ def _ping_db() -> str:
 def _ping_worker() -> str:
     try:
         from backend.worker import celery_app
-        replies = celery_app.control.ping(timeout=2)
+        replies = celery_app.control.ping(timeout=1)
         return "online" if replies else "offline (async tasks unavailable)"
     except Exception:
         return "offline (async tasks unavailable)"
@@ -456,6 +456,8 @@ async def execute_command(
                     agent=primary_agent,
                 )
 
+            except HTTPException:
+                raise
             except Exception as e:
                 log.error(f"[OS] execute local AIOS failed: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
@@ -470,6 +472,8 @@ async def execute_command(
             plan=steps,
             agent=primary_agent,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         log.error(f"[OS] execute error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
