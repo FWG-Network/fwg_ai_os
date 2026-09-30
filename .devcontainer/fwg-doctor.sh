@@ -55,21 +55,14 @@ run_quiet() {
   "$@" >/dev/null 2>&1
 }
 
-printf '
-'
-printf '╭──────────────────────────────────────────────────────────────╮
-'
-printf '│ 🤖 FWG-AI-OS SMART DOCTOR v3                                │
-'
-printf '│ 🔍 Production health verification                           │
-'
-printf '│ 🕐 Started: %-49s│
-' "$START_TS"
-printf '╰──────────────────────────────────────────────────────────────╯
-'
-printf '  📁 Root: %s
-' "$ROOT"
-
+printf '\n'
+printf '─────────────────────────────────────────────────\n'
+printf '  🩺 FWG-AI-OS SMART DOCTOR v3\n'
+printf '  🔍 Production health verification\n'
+printf '  🕐 Started: %-49s\n' "$START_TS"
+printf '─────────────────────────────────────────────────\n'
+printf '  📁 Root: %s\n' "$ROOT"
+printf '\n'
 checking "DOCKER"\nsection "DOCKER"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -502,7 +495,7 @@ printf '  ⚠️  WARN : %d\n' "$WARN"
 printf '  ❌ FAIL : %d\n' "$FAIL"
 printf '  🎯 RESULT: %s\n' "$STATUS"
 printf '  ℹ️  %s\n' "$SUMMARY"
-printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n
+printf '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'
 
 if [[ "${#ISSUES[@]}" -gt 0 ]]; then
   echo

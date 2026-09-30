@@ -17,6 +17,21 @@ from backend.core.config import settings
 
 APIFY_RUN_SYNC_URL = "https://api.apify.com/v2/acts/clockworks~tiktok-scraper/run-sync-get-dataset-items"
 
+class TikTokDiscoveryError(RuntimeError):
+    """Explicit Apify/TikTok discovery failure."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_type: str,
+        status_code: int | None = None,
+    ):
+        super().__init__(message)
+        self.error_type = error_type
+        self.status_code = status_code
+
+
 # Fields verified live (Phase 6A Step 3 evidence report) — only these
 # are ever written into observed_metrics. No fabrication of others.
 _OBSERVED_METRIC_KEYS = ("playCount", "diggCount", "shareCount", "commentCount", "collectCount")
@@ -55,8 +70,10 @@ class TikTokConnector:
 
     async def search(self, query: str, limit: int = 10) -> list[dict]:
         if not settings.APIFY_API_TOKEN:
-            print("⚠️ WARNING: APIFY_API_TOKEN not set. No TikTok results returned.")
-            return []
+            raise TikTokDiscoveryError(
+                "APIFY_API_TOKEN is not configured",
+                error_type="configuration",
+            )
 
         params = {"token": settings.APIFY_API_TOKEN}
         payload = {
@@ -68,16 +85,42 @@ class TikTokConnector:
 
         async with httpx.AsyncClient(timeout=60) as client:
             try:
-                resp = await client.post(APIFY_RUN_SYNC_URL, params=params, json=payload)
+                resp = await client.post(
+                    APIFY_RUN_SYNC_URL,
+                    params=params,
+                    json=payload,
+                )
                 resp.raise_for_status()
+
                 items = resp.json()
                 if not isinstance(items, list):
-                    print(f"⚠️ WARNING: TikTok search unexpected response shape: {type(items)}")
-                    return []
+                    raise TikTokDiscoveryError(
+                        f"Unexpected Apify response shape: {type(items).__name__}",
+                        error_type="response_shape",
+                        status_code=resp.status_code,
+                    )
+
                 return self._build_results(items)
+
+            except TikTokDiscoveryError:
+                raise
+
+            except httpx.HTTPStatusError as e:
+                raise TikTokDiscoveryError(
+                    f"Apify HTTP request failed with status {e.response.status_code}",
+                    error_type="http_status",
+                    status_code=e.response.status_code,
+                ) from e
+
+            except httpx.RequestError as e:
+                raise TikTokDiscoveryError(
+                    f"Apify request failed: {type(e).__name__}",
+                    error_type="request",
+                ) from e
+
             except Exception as e:
-                print(f"❌ ERROR TikTokConnector.search(): {e}")
-                return []
-
-
+                raise TikTokDiscoveryError(
+                    f"Apify response processing failed: {type(e).__name__}",
+                    error_type="processing",
+                ) from e
 tiktok_connector = TikTokConnector()

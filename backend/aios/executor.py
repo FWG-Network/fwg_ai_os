@@ -10,6 +10,7 @@ from typing import Any, List, Optional
 from sqlalchemy.orm import Session
 from backend.models.db import Task as TaskModel
 from backend.core.logger import log
+from backend.services.connectors.apify import TikTokDiscoveryError
 
 # ── Supported tools (aligned with task_planner.py) ───────────────────
 SUPPORTED_TOOLS = {
@@ -66,7 +67,16 @@ class Executor:
         for task, result in zip(executable_tasks, results):
             if isinstance(result, Exception):
                 task.status = "failed"
-                task.result = {"error": str(result)}
+                if isinstance(result, TikTokDiscoveryError):
+                    task.result = {
+                        "error": str(result),
+                        "error_type": result.error_type,
+                        "status_code": result.status_code,
+                        "event": "tiktok_fallback_failed",
+                        "provider": "apify",
+                    }
+                else:
+                    task.result = {"error": str(result)}
                 log.error(f"[Executor] Task {task.id} failed: {result}")
             else:
                 task.status = "completed"

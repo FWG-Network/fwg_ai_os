@@ -14,7 +14,7 @@ import redis
 from sqlalchemy.orm import Session
 
 from backend.services.connectors.youtube import youtube_connector
-from backend.services.connectors.apify import tiktok_connector
+from backend.services.connectors.apify import TikTokDiscoveryError, tiktok_connector
 from backend.core.config import settings
 from backend.core.logger import log
 
@@ -163,10 +163,13 @@ class DiscoveryEngine:
                     f"{len(results)} results for '{fallback_query}'"
                 )
 
-            except Exception as e:
+            except TikTokDiscoveryError as e:
                 log.error(
-                    f"[DiscoveryEngine] TikTok fallback failed: {e}"
+                    "[DiscoveryEngine] tiktok_fallback_failed "
+                    f"provider=apify error_type={e.error_type} "
+                    f"status_code={e.status_code}"
                 )
+                raise
 
         # ── Deduplicate ──────────────────────────────────────────────
         seen: set = set()
@@ -300,10 +303,17 @@ class DiscoveryEngine:
         if platform == "tiktok":
             try:
                 results = await tiktok_connector.search(query, limit=10)
-            except Exception as e:
-                log.error(f"[DiscoveryEngine] TikTok strategy search failed for '{query}': {e}")
-                return []
-            log.info(f"[DiscoveryEngine] discover_from_strategy: {len(results)} TikTok results for '{query}'")
+            except TikTokDiscoveryError as e:
+                log.error(
+                    "[DiscoveryEngine] tiktok_fallback_failed "
+                    f"provider=apify error_type={e.error_type} "
+                    f"status_code={e.status_code}"
+                )
+                raise
+            log.info(
+                f"[DiscoveryEngine] discover_from_strategy: "
+                f"{len(results)} TikTok results for '{query}'"
+            )
             return results
 
         cache_key = f"discovery:strategy:{query}"
