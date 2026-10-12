@@ -19,19 +19,19 @@ async def test_premium_route_reaches_openrouter(monkeypatch):
     router = LLMRouter()
     calls = []
 
-    async def fail_github(prompt, max_tokens, model_id):
+    async def fail_github(prompt, max_tokens, model_id, metadata):
         calls.append("github")
         return None
 
-    async def fail_cloudflare(prompt, max_tokens, model_id):
+    async def fail_cloudflare(prompt, max_tokens, model_id, metadata):
         calls.append("cloudflare")
         return None
 
-    async def fail_gemini(prompt, max_tokens):
+    async def fail_gemini(prompt, max_tokens, metadata):
         calls.append("gemini")
         return None
 
-    async def real_openrouter(prompt, max_tokens, task_type):
+    async def real_openrouter(prompt, max_tokens, task_type, metadata):
         calls.append(("openrouter", task_type))
         return "REAL-ROUTER-TEST-RESPONSE"
 
@@ -96,3 +96,35 @@ async def test_legacy_provider_failure_must_not_return_mock(monkeypatch):
             "test prompt",
             task_type="default",
         )
+
+
+@pytest.mark.asyncio
+async def test_writer_route_skips_gemini_and_propagates_failure(monkeypatch):
+    router = LLMRouter()
+    calls = []
+
+    async def fail_github(prompt, max_tokens, model_id, metadata):
+        calls.append("github")
+        return None
+
+    async def forbidden_gemini(prompt, max_tokens, metadata):
+        pytest.fail("WRITER ROUTE MUST NOT CALL GEMINI")
+
+    async def fail_openrouter(prompt, max_tokens, task_type, metadata):
+        calls.append(("openrouter", task_type))
+        return None
+
+    monkeypatch.setattr(router, "_call_github_models", fail_github)
+    monkeypatch.setattr(router, "_call_gemini", forbidden_gemini)
+    monkeypatch.setattr(router, "_call_openrouter", fail_openrouter)
+
+    with pytest.raises(Exception, match="No real LLM provider available"):
+        await router.generate(
+            "test writer prompt",
+            task_type="writer",
+        )
+
+    assert calls == [
+        "github",
+        ("openrouter", "writer"),
+    ]

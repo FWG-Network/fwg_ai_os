@@ -170,9 +170,6 @@ class LLMRouter:
             result = await self._call_github_models(prompt, max_tokens, GH_MODEL_BY_TASK.get(task_type), metadata)
             if result:
                 return result
-            result = await self._call_gemini(prompt, max_tokens, metadata)
-            if result:
-                return result
             result = await self._call_openrouter(prompt, max_tokens, task_type, metadata)
             if result:
                 return result
